@@ -29,9 +29,12 @@ def get_access_token(conn) -> str:
 
     token = get_cached_token(conn)
     if token:
+        print("[KIS] 캐시된 토큰 사용")
         return token
 
+    print("[KIS] 신규 토큰 발급 시도")
     token, expires_at = fetch_token_from_kis()
+    print(f"[KIS] 토큰 발급 완료, 만료: {expires_at}")
     save_token(conn, token, expires_at)
     return token
 

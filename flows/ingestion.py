@@ -65,8 +65,8 @@ def fetch_and_upsert(ticker: str, token: str, time_str: str) -> bool:
             upsert_candles(conn, rows)
         return True
     except Exception as e:
-        logger.warning(f"[{ticker}] 실패: {e}")
-        return False
+        logger.error(f"[{ticker}] 실패 (상세): {type(e).__name__}: {e}")
+        raise
 
 
 @task(retries=2, retry_delay_seconds=10, cache_policy=NO_CACHE)
@@ -81,10 +81,11 @@ def backfill_ticker_day(ticker: str, token: str, date_str: str) -> int:
         rows = [parse_candle(ticker, c) for c in candles]
         with get_conn() as conn:
             upsert_candles(conn, rows)
+        logger.info(f"[{ticker}] {date_str} 저장 완료: {len(rows)}건")
         return len(rows)
     except Exception as e:
-        logger.warning(f"[{ticker}] {date_str} 실패: {e}")
-        return 0
+        logger.error(f"[{ticker}] {date_str} 실패 (상세): {type(e).__name__}: {e}")
+        raise
 
 
 @flow(name="micro-batch-ingestion", log_prints=True)
