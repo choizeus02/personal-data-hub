@@ -46,6 +46,7 @@ def ensure_tables(conn):
                 PRIMARY KEY (ticker, datetime)
             )
         """)
+    conn.commit()  # DDL은 즉시 커밋 (이후 롤백에 영향받지 않도록)
 
 
 def get_cached_token(conn) -> str | None:
