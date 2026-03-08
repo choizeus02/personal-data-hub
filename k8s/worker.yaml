@@ -17,12 +17,9 @@ spec:
         - name: prefect-worker
           image: ghcr.io/choizeus02/personal-data-hub:1236b9425dd3e44c3c11460e55a1b02205099ae2
           command: ["prefect", "worker", "start", "--pool", "personal-data-hub-pool"]
-          env:
-            - name: PREFECT_API_URL
-              valueFrom:
-                secretKeyRef:
-                  name: personal-data-hub-secret
-                  key: PREFECT_API_URL
+          envFrom:
+            - secretRef:
+                name: personal-data-hub-secret
           resources:
             requests:
               cpu: "100m"
