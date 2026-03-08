@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prefect-worker
+  namespace: trading
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prefect-worker
+  template:
+    metadata:
+      labels:
+        app: prefect-worker
+    spec:
+      containers:
+        - name: prefect-worker
+          image: prefecthq/prefect:3-latest
+          command: ["prefect", "worker", "start", "--pool", "personal-data-hub-pool"]
+          env:
+            - name: PREFECT_API_URL
+              valueFrom:
+                secretKeyRef:
+                  name: personal-data-hub-secret
+                  key: PREFECT_API_URL
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
