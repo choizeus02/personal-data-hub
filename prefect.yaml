@@ -1,0 +1,17 @@
+name: personal-data-hub
+prefect-version: 3.0.0
+
+deployments:
+  - name: micro-batch
+    entrypoint: flows/ingestion.py:micro_batch_flow
+    work_pool:
+      name: personal-data-hub-pool
+    schedules:
+      - cron: "* 9-15 * * 1-5"
+        timezone: Asia/Seoul
+
+  - name: backfill
+    entrypoint: flows/ingestion.py:backfill_flow
+    work_pool:
+      name: personal-data-hub-pool
+    # 스케줄 없음 — 수동 실행 전용
