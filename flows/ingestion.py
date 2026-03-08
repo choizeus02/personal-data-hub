@@ -54,14 +54,15 @@ def get_backfill_range(conn) -> tuple[date, date]:
 
 
 @task(retries=2, retry_delay_seconds=5, cache_policy=NO_CACHE)
-def fetch_and_upsert(ticker: str, token: str, time_str: str, conn) -> bool:
+def fetch_and_upsert(ticker: str, token: str, time_str: str) -> bool:
     logger = get_run_logger()
     try:
         candles = fetch_minute_candles(ticker, token, time_str)
         if not candles:
             return False
         rows = [parse_candle(ticker, c) for c in candles[:1]]
-        upsert_candles(conn, rows)
+        with get_conn() as conn:
+            upsert_candles(conn, rows)
         return True
     except Exception as e:
         logger.warning(f"[{ticker}] 실패: {e}")
@@ -69,7 +70,7 @@ def fetch_and_upsert(ticker: str, token: str, time_str: str, conn) -> bool:
 
 
 @task(retries=2, retry_delay_seconds=10, cache_policy=NO_CACHE)
-def backfill_ticker_day(ticker: str, token: str, date_str: str, conn) -> int:
+def backfill_ticker_day(ticker: str, token: str, date_str: str) -> int:
     """단일 종목 단일 날짜 전체 분봉 적재. 적재 건수 반환"""
     logger = get_run_logger()
     try:
@@ -78,7 +79,8 @@ def backfill_ticker_day(ticker: str, token: str, date_str: str, conn) -> int:
         if not candles:
             return 0
         rows = [parse_candle(ticker, c) for c in candles]
-        upsert_candles(conn, rows)
+        with get_conn() as conn:
+            upsert_candles(conn, rows)
         return len(rows)
     except Exception as e:
         logger.warning(f"[{ticker}] {date_str} 실패: {e}")
@@ -101,14 +103,14 @@ def micro_batch_flow():
         ensure_tables(conn)
         token = get_access_token(conn)
 
-        success, fail = 0, 0
-        for ticker in TICKERS:
-            result = fetch_and_upsert(ticker, token, time_str, conn)
-            if result:
-                success += 1
-            else:
-                fail += 1
-            time.sleep(API_SLEEP)
+    success, fail = 0, 0
+    for ticker in TICKERS:
+        result = fetch_and_upsert(ticker, token, time_str)
+        if result:
+            success += 1
+        else:
+            fail += 1
+        time.sleep(API_SLEEP)
 
     logger.info(f"완료 — 성공: {success}, 실패: {fail}")
 
@@ -128,24 +130,23 @@ def backfill_flow(tickers: list[str] | None = None):
     with get_conn() as conn:
         ensure_tables(conn)
         token = get_access_token(conn)
-
         start, end = get_backfill_range(conn)
 
-        if start > end:
-            logger.info("백필할 데이터 없음 (이미 최신)")
-            return
+    if start > end:
+        logger.info("백필할 데이터 없음 (이미 최신)")
+        return
 
-        trading_days = get_trading_days(start, end)
-        logger.info(f"백필 범위: {start} ~ {end} ({len(trading_days)}일)")
+    trading_days = get_trading_days(start, end)
+    logger.info(f"백필 범위: {start} ~ {end} ({len(trading_days)}일)")
 
-        total_rows = 0
-        for day in trading_days:
-            date_str = day.strftime("%Y%m%d")
-            logger.info(f"날짜: {date_str}")
-            for ticker in target_tickers:
-                count = backfill_ticker_day(ticker, token, date_str, conn)
-                total_rows += count
-                time.sleep(API_SLEEP)
+    total_rows = 0
+    for day in trading_days:
+        date_str = day.strftime("%Y%m%d")
+        logger.info(f"날짜: {date_str}")
+        for ticker in target_tickers:
+            count = backfill_ticker_day(ticker, token, date_str)
+            total_rows += count
+            time.sleep(API_SLEEP)
 
     logger.info(f"백필 완료 — 총 {total_rows}건 적재")
 
