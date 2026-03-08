@@ -2,6 +2,7 @@ import time
 from datetime import datetime, timedelta, timezone, date
 
 from prefect import flow, task, get_run_logger
+from prefect.cache_policies import NO_CACHE
 
 from database import get_conn, ensure_tables, upsert_candles, get_latest_candle_datetime
 from kis_client import get_access_token, fetch_minute_candles, fetch_all_candles_for_day, parse_candle
@@ -52,7 +53,7 @@ def get_backfill_range(conn) -> tuple[date, date]:
     return start, end
 
 
-@task(retries=2, retry_delay_seconds=5)
+@task(retries=2, retry_delay_seconds=5, cache_policy=NO_CACHE)
 def fetch_and_upsert(ticker: str, token: str, time_str: str, conn) -> bool:
     logger = get_run_logger()
     try:
@@ -67,7 +68,7 @@ def fetch_and_upsert(ticker: str, token: str, time_str: str, conn) -> bool:
         return False
 
 
-@task(retries=2, retry_delay_seconds=10)
+@task(retries=2, retry_delay_seconds=10, cache_policy=NO_CACHE)
 def backfill_ticker_day(ticker: str, token: str, date_str: str, conn) -> int:
     """단일 종목 단일 날짜 전체 분봉 적재. 적재 건수 반환"""
     logger = get_run_logger()

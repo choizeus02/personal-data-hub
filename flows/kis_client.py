@@ -36,13 +36,13 @@ def get_access_token(conn) -> str:
     return token
 
 
-def _headers(token: str, tr_id: str, tr_cont: str = " ") -> dict:
+def _headers(token: str, tr_id: str, tr_cont: str = "") -> dict:
     return {
         "Authorization": f"Bearer {token}",
         "appkey": os.environ["KIS_APP_KEY"],
         "appsecret": os.environ["KIS_APP_SECRET"],
         "tr_id": tr_id,
-        "tr_cont": tr_cont,
+        "tr_cont": tr_cont.strip(),
         "custtype": "P",
         "Content-Type": "application/json",
     }
@@ -69,7 +69,7 @@ def fetch_minute_candles(ticker: str, token: str, time_str: str) -> list[dict]:
 
 
 def fetch_daily_minute_candles(
-    ticker: str, token: str, date_str: str, time_str: str = "153000", tr_cont: str = " "
+    ticker: str, token: str, date_str: str, time_str: str = "153000", tr_cont: str = ""
 ) -> tuple[list[dict], str]:
     """
     일별 분봉 조회 (FHKST03010230) — 최대 1년 과거 데이터
