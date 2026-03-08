@@ -74,6 +74,7 @@ def backfill_ticker_day(ticker: str, token: str, date_str: str, conn) -> int:
     logger = get_run_logger()
     try:
         candles = fetch_all_candles_for_day(ticker, token, date_str, sleep_sec=API_SLEEP)
+        logger.info(f"[{ticker}] {date_str} 조회: {len(candles)}건")
         if not candles:
             return 0
         rows = [parse_candle(ticker, c) for c in candles]
