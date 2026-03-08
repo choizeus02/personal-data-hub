@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: prefect-worker
-          image: ghcr.io/choizeus02/personal-data-hub:fdab5d64200495cc1969a366f290223d30d6342e
+          image: ghcr.io/choizeus02/personal-data-hub:1236b9425dd3e44c3c11460e55a1b02205099ae2
           command: ["prefect", "worker", "start", "--pool", "personal-data-hub-pool"]
           env:
             - name: PREFECT_API_URL
