@@ -114,13 +114,16 @@ def micro_batch_flow():
 
 
 @flow(name="backfill-ingestion", log_prints=True)
-def backfill_flow():
+def backfill_flow(tickers: list[str] | None = None):
     """
     DB 상태를 자동 판단하여 누락 구간 적재
+    - tickers: 특정 종목만 지정 가능 (None이면 전체 종목)
     - DB 비어있음 → 최대 1년치 전체 적재
     - DB에 데이터 있음 → 마지막 날짜 이후부터 어제까지 적재
     """
     logger = get_run_logger()
+    target_tickers = tickers if tickers else TICKERS
+    logger.info(f"대상 종목: {len(target_tickers)}개 {target_tickers if tickers else '(전체)'}")
 
     with get_conn() as conn:
         ensure_tables(conn)
@@ -139,7 +142,7 @@ def backfill_flow():
         for day in trading_days:
             date_str = day.strftime("%Y%m%d")
             logger.info(f"날짜: {date_str}")
-            for ticker in TICKERS:
+            for ticker in target_tickers:
                 count = backfill_ticker_day(ticker, token, date_str, conn)
                 total_rows += count
                 time.sleep(API_SLEEP)
