@@ -36,24 +36,26 @@ def get_access_token(conn) -> str:
     return token
 
 
-def _headers(token: str) -> dict:
+def _headers(token: str, tr_id: str, tr_cont: str = " ") -> dict:
     return {
         "Authorization": f"Bearer {token}",
         "appkey": os.environ["KIS_APP_KEY"],
         "appsecret": os.environ["KIS_APP_SECRET"],
-        "tr_id": "FHKST03010200",
+        "tr_id": tr_id,
+        "tr_cont": tr_cont,
+        "custtype": "P",
         "Content-Type": "application/json",
     }
 
 
 def fetch_minute_candles(ticker: str, token: str, time_str: str) -> list[dict]:
     """
-    time_str: 'HHMMSS' 형식 (e.g., '093000')
-    최신 1분봉 반환 (output2 리스트)
+    당일 분봉 조회 (FHKST03010200)
+    time_str: 'HHMMSS' 형식
     """
     resp = requests.get(
         f"{KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice",
-        headers=_headers(token),
+        headers=_headers(token, "FHKST03010200"),
         params={
             "FID_ETC_CLS_CODE": "0",
             "FID_INPUT_ISCD": ticker,
@@ -64,6 +66,60 @@ def fetch_minute_candles(ticker: str, token: str, time_str: str) -> list[dict]:
     )
     resp.raise_for_status()
     return resp.json().get("output2", [])
+
+
+def fetch_daily_minute_candles(
+    ticker: str, token: str, date_str: str, time_str: str = "153000", tr_cont: str = " "
+) -> tuple[list[dict], str]:
+    """
+    일별 분봉 조회 (FHKST03010230) — 최대 1년 과거 데이터
+    date_str: 'YYYYMMDD'
+    time_str: 조회 기준 시간 'HHMMSS' (해당 시간 이전 최대 120건 반환)
+    반환: (candles, tr_cont) — tr_cont='M'이면 다음 페이지 있음
+    """
+    resp = requests.get(
+        f"{KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice",
+        headers=_headers(token, "FHKST03010230", tr_cont),
+        params={
+            "FID_COND_MRKT_DIV_CODE": "J",
+            "FID_INPUT_ISCD": ticker,
+            "FID_INPUT_DATE_1": date_str,
+            "FID_INPUT_HOUR_1": time_str,
+            "FID_PW_DATA_INCU_YN": "Y",
+            "FID_FAKE_TICK_INCU_YN": "N",
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    if data.get("rt_cd") != "0":
+        return [], " "
+
+    next_tr_cont = resp.headers.get("tr_cont", " ")
+    return data.get("output2", []), next_tr_cont
+
+
+def fetch_all_candles_for_day(ticker: str, token: str, date_str: str, sleep_sec: float = 0.07) -> list[dict]:
+    """
+    하루치 전체 분봉 수집 (페이징 처리)
+    120건씩 최대 4회 호출로 하루치(390분) 완성
+    """
+    import time as _time
+
+    all_candles = []
+    tr_cont = " "
+
+    while True:
+        candles, tr_cont = fetch_daily_minute_candles(ticker, token, date_str, tr_cont=tr_cont)
+        all_candles.extend(candles)
+
+        if tr_cont != "M":
+            break
+
+        _time.sleep(sleep_sec)
+
+    return all_candles
 
 
 def parse_candle(ticker: str, raw: dict) -> tuple:

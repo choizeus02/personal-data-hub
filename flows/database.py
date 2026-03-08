@@ -68,6 +68,14 @@ def save_token(conn, access_token: str, expires_at):
         )
 
 
+def get_latest_candle_datetime(conn):
+    """DB에서 가장 최근 분봉 시간 반환. 데이터 없으면 None"""
+    with conn.cursor() as cur:
+        cur.execute("SELECT MAX(datetime) FROM minute_candles")
+        row = cur.fetchone()
+    return row[0] if row and row[0] else None
+
+
 def upsert_candles(conn, rows: list[tuple]):
     """
     rows: [(ticker, datetime, open, high, low, close, volume), ...]

@@ -1,6 +1,10 @@
 name: personal-data-hub
 prefect-version: 3.0.0
 
+pull:
+  - prefect.deployments.steps.set_working_directory:
+      directory: /app
+
 deployments:
   - name: micro-batch
     entrypoint: flows/ingestion.py:micro_batch_flow
