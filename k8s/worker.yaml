@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: prefect-worker
-          image: ghcr.io/choizeus02/personal-data-hub:aa863bff09dc98b5cbe4f2433d5e82f232770f11
+          image: ghcr.io/choizeus02/personal-data-hub:f58aca38d6d6f16e9cd14520d5a88d93aaeed54b
           command: ["prefect", "worker", "start", "--pool", "personal-data-hub-pool"]
           envFrom:
             - secretRef:
