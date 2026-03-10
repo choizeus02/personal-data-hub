@@ -4,9 +4,9 @@ from datetime import datetime, timedelta, timezone, date
 from prefect import flow, task, get_run_logger
 from prefect.cache_policies import NO_CACHE
 
-from database import get_conn, ensure_tables, upsert_candles, get_latest_candle_datetime
+from database import get_conn, ensure_tables, get_or_create_asset, upsert_ohlcv, get_latest_candle_datetime
 from kis_client import get_access_token, fetch_minute_candles, fetch_all_candles_for_day, parse_candle
-from tickers import TICKERS
+from tickers import KR_STOCKS
 
 KST = timezone(timedelta(hours=9))
 MARKET_OPEN = (9, 0)
@@ -28,7 +28,7 @@ def get_trading_days(start: date, end: date) -> list[date]:
     days = []
     cur = start
     while cur <= end:
-        if cur.weekday() < 5:  # 월~금 (공휴일 제외 미구현)
+        if cur.weekday() < 5:
             days.append(cur)
         cur += timedelta(days=1)
     return days
@@ -53,38 +53,48 @@ def get_backfill_range(conn) -> tuple[date, date]:
     return start, end
 
 
+def _get_asset_id_map(conn, assets: list[dict]) -> dict[str, int]:
+    """자산 목록을 assets 테이블에 등록하고 symbol → asset_id 맵 반환"""
+    return {
+        a["symbol"]: get_or_create_asset(
+            conn, a["symbol"], a["asset_type"], a["exchange"], a["currency"]
+        )
+        for a in assets
+    }
+
+
 @task(retries=2, retry_delay_seconds=5, cache_policy=NO_CACHE)
-def fetch_and_upsert(ticker: str, token: str, time_str: str) -> bool:
+def fetch_and_upsert(asset_id: int, symbol: str, token: str, time_str: str) -> bool:
     logger = get_run_logger()
     try:
-        candles = fetch_minute_candles(ticker, token, time_str)
+        candles = fetch_minute_candles(symbol, token, time_str)
         if not candles:
             return False
-        rows = [parse_candle(ticker, c) for c in candles[:1]]
+        rows = [parse_candle(asset_id, c) for c in candles[:1]]
         with get_conn() as conn:
-            upsert_candles(conn, rows)
+            upsert_ohlcv(conn, rows)
         return True
     except Exception as e:
-        logger.error(f"[{ticker}] 실패 (상세): {type(e).__name__}: {e}")
+        logger.error(f"[{symbol}] 실패: {type(e).__name__}: {e}")
         raise
 
 
 @task(retries=2, retry_delay_seconds=10, cache_policy=NO_CACHE)
-def backfill_ticker_day(ticker: str, token: str, date_str: str) -> int:
+def backfill_ticker_day(asset_id: int, symbol: str, token: str, date_str: str) -> int:
     """단일 종목 단일 날짜 전체 분봉 적재. 적재 건수 반환"""
     logger = get_run_logger()
     try:
-        candles = fetch_all_candles_for_day(ticker, token, date_str, sleep_sec=API_SLEEP)
-        logger.info(f"[{ticker}] {date_str} 조회: {len(candles)}건")
+        candles = fetch_all_candles_for_day(symbol, token, date_str, sleep_sec=API_SLEEP)
+        logger.info(f"[{symbol}] {date_str} 조회: {len(candles)}건")
         if not candles:
             return 0
-        rows = [parse_candle(ticker, c) for c in candles]
+        rows = [parse_candle(asset_id, c) for c in candles]
         with get_conn() as conn:
-            upsert_candles(conn, rows)
-        logger.info(f"[{ticker}] {date_str} 저장 완료: {len(rows)}건")
+            upsert_ohlcv(conn, rows)
+        logger.info(f"[{symbol}] {date_str} 저장 완료: {len(rows)}건")
         return len(rows)
     except Exception as e:
-        logger.error(f"[{ticker}] {date_str} 실패 (상세): {type(e).__name__}: {e}")
+        logger.error(f"[{symbol}] {date_str} 실패: {type(e).__name__}: {e}")
         raise
 
 
@@ -98,15 +108,18 @@ def micro_batch_flow():
 
     now = datetime.now(KST)
     time_str = now.strftime("%H%M%S")
-    logger.info(f"수집 시작: {time_str}, 종목 수: {len(TICKERS)}")
+    logger.info(f"수집 시작: {time_str}, 종목 수: {len(KR_STOCKS)}")
 
     with get_conn() as conn:
         ensure_tables(conn)
         token = get_access_token(conn)
+        asset_id_map = _get_asset_id_map(conn, KR_STOCKS)
 
     success, fail = 0, 0
-    for ticker in TICKERS:
-        result = fetch_and_upsert(ticker, token, time_str)
+    for asset in KR_STOCKS:
+        symbol = asset["symbol"]
+        asset_id = asset_id_map[symbol]
+        result = fetch_and_upsert(asset_id, symbol, token, time_str)
         if result:
             success += 1
         else:
@@ -117,20 +130,25 @@ def micro_batch_flow():
 
 
 @flow(name="backfill-ingestion", log_prints=True)
-def backfill_flow(tickers: list[str] | None = None):
+def backfill_flow(symbols: list[str] | None = None):
     """
     DB 상태를 자동 판단하여 누락 구간 적재
-    - tickers: 특정 종목만 지정 가능 (None이면 전체 종목)
+    - symbols: 특정 종목만 지정 가능 (None이면 전체 종목)
     - DB 비어있음 → 최대 1년치 전체 적재
     - DB에 데이터 있음 → 마지막 날짜 이후부터 어제까지 적재
     """
     logger = get_run_logger()
-    target_tickers = tickers if tickers else TICKERS
-    logger.info(f"대상 종목: {len(target_tickers)}개 {target_tickers if tickers else '(전체)'}")
+
+    target_assets = (
+        [a for a in KR_STOCKS if a["symbol"] in symbols]
+        if symbols else KR_STOCKS
+    )
+    logger.info(f"대상 종목: {len(target_assets)}개 {symbols if symbols else '(전체)'}")
 
     with get_conn() as conn:
         ensure_tables(conn)
         token = get_access_token(conn)
+        asset_id_map = _get_asset_id_map(conn, target_assets)
         start, end = get_backfill_range(conn)
 
     if start > end:
@@ -144,8 +162,10 @@ def backfill_flow(tickers: list[str] | None = None):
     for day in trading_days:
         date_str = day.strftime("%Y%m%d")
         logger.info(f"날짜: {date_str}")
-        for ticker in target_tickers:
-            count = backfill_ticker_day(ticker, token, date_str)
+        for asset in target_assets:
+            symbol = asset["symbol"]
+            asset_id = asset_id_map[symbol]
+            count = backfill_ticker_day(asset_id, symbol, token, date_str)
             total_rows += count
             time.sleep(API_SLEEP)
 

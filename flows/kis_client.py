@@ -126,16 +126,16 @@ def fetch_all_candles_for_day(ticker: str, token: str, date_str: str, sleep_sec:
     return all_candles
 
 
-def parse_candle(ticker: str, raw: dict) -> tuple:
+def parse_candle(asset_id: int, raw: dict) -> tuple:
     """
-    KIS 응답 → (ticker, datetime, open, high, low, close, volume)
+    KIS 응답 → (time, asset_id, open, high, low, close, volume)
     """
     date_str = raw["stck_bsop_date"]   # YYYYMMDD
     time_str = raw["stck_cntg_hour"]   # HHMMSS
     dt = datetime.strptime(f"{date_str}{time_str}", "%Y%m%d%H%M%S").replace(tzinfo=KST)
     return (
-        ticker,
         dt,
+        asset_id,
         int(raw["stck_oprc"]) if raw["stck_oprc"] else None,
         int(raw["stck_hgpr"]) if raw["stck_hgpr"] else None,
         int(raw["stck_lwpr"]) if raw["stck_lwpr"] else None,

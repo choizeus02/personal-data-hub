@@ -33,27 +33,71 @@ def get_conn():
 
 def ensure_tables(conn):
     with conn.cursor() as cur:
+        # TimescaleDB extension
+        cur.execute("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE")
+
+        # 자산 마스터
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS kis_token (
-                id SERIAL PRIMARY KEY,
-                access_token TEXT NOT NULL,
-                expires_at TIMESTAMPTZ NOT NULL,
-                created_at TIMESTAMPTZ DEFAULT NOW()
+            CREATE TABLE IF NOT EXISTS assets (
+                id          SERIAL PRIMARY KEY,
+                symbol      VARCHAR(20)  NOT NULL,
+                asset_type  VARCHAR(20)  NOT NULL,
+                exchange    VARCHAR(20)  NOT NULL,
+                currency    VARCHAR(10)  NOT NULL,
+                UNIQUE (symbol, exchange)
             )
         """)
+
+        # 분봉 시계열 (Hypertable)
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS minute_candles (
-                ticker      VARCHAR(10)   NOT NULL,
-                datetime    TIMESTAMPTZ   NOT NULL,
+            CREATE TABLE IF NOT EXISTS ohlcv_min (
+                time        TIMESTAMPTZ  NOT NULL,
+                asset_id    INTEGER      NOT NULL REFERENCES assets(id),
                 open        NUMERIC,
                 high        NUMERIC,
                 low         NUMERIC,
                 close       NUMERIC,
                 volume      BIGINT,
-                PRIMARY KEY (ticker, datetime)
+                PRIMARY KEY (time, asset_id)
             )
         """)
-    conn.commit()  # DDL은 즉시 커밋 (이후 롤백에 영향받지 않도록)
+
+        cur.execute("""
+            SELECT create_hypertable('ohlcv_min', 'time', if_not_exists => TRUE)
+        """)
+
+        # KIS 토큰 캐시
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS kis_token (
+                id           SERIAL PRIMARY KEY,
+                access_token TEXT        NOT NULL,
+                expires_at   TIMESTAMPTZ NOT NULL,
+                created_at   TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
+    conn.commit()
+
+
+def get_or_create_asset(conn, symbol: str, asset_type: str, exchange: str, currency: str) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO assets (symbol, asset_type, exchange, currency)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (symbol, exchange) DO NOTHING
+            RETURNING id
+            """,
+            (symbol, asset_type, exchange, currency),
+        )
+        row = cur.fetchone()
+        if row:
+            return row[0]
+        cur.execute(
+            "SELECT id FROM assets WHERE symbol = %s AND exchange = %s",
+            (symbol, exchange),
+        )
+        return cur.fetchone()[0]
 
 
 def get_cached_token(conn) -> str | None:
@@ -77,16 +121,16 @@ def save_token(conn, access_token: str, expires_at):
 
 
 def get_latest_candle_datetime(conn):
-    """DB에서 가장 최근 분봉 시간 반환. 데이터 없으면 None"""
+    """전체 자산 기준 가장 최근 분봉 시간 반환 (backfill range 계산용)"""
     with conn.cursor() as cur:
-        cur.execute("SELECT MAX(datetime) FROM minute_candles")
+        cur.execute("SELECT MAX(time) FROM ohlcv_min")
         row = cur.fetchone()
     return row[0] if row and row[0] else None
 
 
-def upsert_candles(conn, rows: list[tuple]):
+def upsert_ohlcv(conn, rows: list[tuple]):
     """
-    rows: [(ticker, datetime, open, high, low, close, volume), ...]
+    rows: [(time, asset_id, open, high, low, close, volume), ...]
     """
     if not rows:
         return
@@ -94,9 +138,9 @@ def upsert_candles(conn, rows: list[tuple]):
         execute_values(
             cur,
             """
-            INSERT INTO minute_candles (ticker, datetime, open, high, low, close, volume)
+            INSERT INTO ohlcv_min (time, asset_id, open, high, low, close, volume)
             VALUES %s
-            ON CONFLICT (ticker, datetime) DO UPDATE SET
+            ON CONFLICT (time, asset_id) DO UPDATE SET
                 open   = EXCLUDED.open,
                 high   = EXCLUDED.high,
                 low    = EXCLUDED.low,
