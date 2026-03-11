@@ -30,46 +30,11 @@ def is_market_open() -> bool:
     return MARKET_OPEN_ET <= t <= MARKET_CLOSE_ET
 
 
-def fetch_latest_candle(ticker: str) -> dict | None:
-    """
-    단일 종목 최신 1분봉 1건 반환
-    반환: {"time": datetime(UTC), "open": float, "high": float, "low": float, "close": float, "volume": int}
-    """
-    df = yf.download(ticker, period="1d", interval="1m", progress=False, auto_adjust=True)
-    if df.empty:
-        return None
-    row = df.iloc[-1]
-    ts = df.index[-1]
-    if hasattr(ts, "to_pydatetime"):
-        ts = ts.to_pydatetime()
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
-    return {
-        "time": ts,
-        "open": float(row["Open"]),
-        "high": float(row["High"]),
-        "low": float(row["Low"]),
-        "close": float(row["Close"]),
-        "volume": int(row["Volume"]),
-    }
-
-
-def fetch_candles_for_range(ticker: str, start: datetime, end: datetime) -> list[dict]:
-    """
-    지정 기간 1m 분봉 일괄 조회 (최대 7일 제약)
-    start/end: timezone-aware datetime
-    반환: [{"time": datetime(UTC), "open", "high", "low", "close", "volume"}, ...]
-    """
-    df = yf.download(
-        ticker,
-        start=start.strftime("%Y-%m-%d"),
-        end=end.strftime("%Y-%m-%d"),
-        interval="1m",
-        progress=False,
-        auto_adjust=True,
-    )
-    if df.empty:
-        return []
+def _df_to_candles(df) -> list[dict]:
+    """DataFrame → candle dict 리스트 변환 (MultiIndex 컬럼 자동 처리)"""
+    # yfinance >= 0.2.31은 단일 종목도 MultiIndex 반환 → 첫 번째 레벨 제거
+    if isinstance(df.columns, pd.MultiIndex):
+        df = df.droplevel(1, axis=1)
 
     result = []
     for ts, row in df.iterrows():
@@ -86,6 +51,34 @@ def fetch_candles_for_range(ticker: str, start: datetime, end: datetime) -> list
             "volume": int(row["Volume"]),
         })
     return result
+
+
+def fetch_latest_candle(ticker: str) -> dict | None:
+    """
+    단일 종목 최신 1분봉 1건 반환
+    반환: {"time": datetime(UTC), "open": float, "high": float, "low": float, "close": float, "volume": int}
+    """
+    df = yf.Ticker(ticker).history(period="1d", interval="1m")
+    if df.empty:
+        return None
+    candles = _df_to_candles(df)
+    return candles[-1] if candles else None
+
+
+def fetch_candles_for_range(ticker: str, start: datetime, end: datetime) -> list[dict]:
+    """
+    지정 기간 1m 분봉 일괄 조회 (최대 7일 제약)
+    start/end: timezone-aware datetime
+    반환: [{"time": datetime(UTC), "open", "high", "low", "close", "volume"}, ...]
+    """
+    df = yf.Ticker(ticker).history(
+        start=start.strftime("%Y-%m-%d"),
+        end=end.strftime("%Y-%m-%d"),
+        interval="1m",
+    )
+    if df.empty:
+        return []
+    return _df_to_candles(df)
 
 
 def parse_candle(asset_id: int, raw: dict) -> tuple:
