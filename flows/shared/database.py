@@ -120,6 +120,23 @@ def save_token(conn, access_token: str, expires_at):
         )
 
 
+def get_existing_days(conn, exchange: str, start, end) -> set:
+    """
+    DB에 데이터가 있는 날짜 집합 반환 (exchange 로컬 날짜 기준)
+    start/end: date 또는 datetime
+    """
+    tz = "Asia/Seoul" if exchange == "KRX" else "America/New_York"
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT DISTINCT DATE(o.time AT TIME ZONE %s)
+            FROM ohlcv_min o
+            JOIN assets a ON a.id = o.asset_id
+            WHERE a.exchange = %s
+              AND o.time >= %s AND o.time < %s
+        """, (tz, exchange, start, end))
+        return {row[0] for row in cur.fetchall()}
+
+
 def get_earliest_candle_datetime(conn, exchange: str | None = None):
     """가장 오래된 분봉 시간 반환 (역사 데이터 gap 확인용)"""
     with conn.cursor() as cur:

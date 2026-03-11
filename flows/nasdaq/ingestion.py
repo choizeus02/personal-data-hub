@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone, date
 from prefect import flow, task, get_run_logger
 from prefect.cache_policies import NO_CACHE
 
-from shared.database import get_conn, ensure_tables, get_or_create_asset, upsert_ohlcv
+from shared.database import get_conn, ensure_tables, get_or_create_asset, upsert_ohlcv, get_existing_days
 from shared.yfinance_client import (
     is_market_open,
     fetch_latest_candle,
@@ -20,6 +20,7 @@ from nasdaq.tickers import US_STOCKS
 
 UTC = timezone.utc
 BATCH_SLEEP = 0.2  # 종목 간 딜레이 (Yahoo 레이트 리밋 완화)
+BACKFILL_BUFFER_DAYS = 1  # gap 경계 양쪽 ±N일 중복 수집
 
 
 def get_trading_days(start: date, end: date) -> list[date]:
@@ -33,14 +34,17 @@ def get_trading_days(start: date, end: date) -> list[date]:
     return days
 
 
-def get_backfill_range() -> tuple[date, date]:
-    """
-    yfinance 1m 제약(7일)으로 인해 항상 최근 7일을 대상으로 함.
-    DB 상태 무관 — UPSERT로 중복 처리.
-    """
-    today = datetime.now(UTC).date()
-    start = today - timedelta(days=YFINANCE_1M_MAX_DAYS - 1)
-    return start, today
+def get_days_to_fetch(existing: set, all_days: list[date], buffer: int = BACKFILL_BUFFER_DAYS) -> list[date]:
+    """누락 날짜 + 경계 buffer 반환"""
+    all_set = set(all_days)
+    missing = all_set - existing
+    to_fetch = set(missing)
+    for d in missing:
+        for delta in range(1, buffer + 1):
+            for neighbor in (d - timedelta(days=delta), d + timedelta(days=delta)):
+                if neighbor in all_set:
+                    to_fetch.add(neighbor)
+    return sorted(to_fetch)
 
 
 def _get_asset_id_map(conn, assets: list[dict]) -> dict[str, int]:
@@ -70,23 +74,22 @@ def fetch_and_upsert(asset_id: int, symbol: str) -> bool:
 
 
 @task(retries=2, retry_delay_seconds=10, cache_policy=NO_CACHE)
-def backfill_ticker_range(asset_id: int, symbol: str, start: date, end: date) -> int:
-    """단일 종목 지정 기간 전체 분봉 적재"""
+def backfill_ticker_day(asset_id: int, symbol: str, day: date) -> int:
+    """단일 종목 단일 날짜 전체 분봉 적재"""
     logger = get_run_logger()
     try:
-        start_dt = datetime(start.year, start.month, start.day, tzinfo=UTC)
-        end_dt = datetime(end.year, end.month, end.day, tzinfo=UTC) + timedelta(days=1)
+        start_dt = datetime(day.year, day.month, day.day, tzinfo=UTC)
+        end_dt = start_dt + timedelta(days=1)
         candles = fetch_candles_for_range(symbol, start_dt, end_dt)
-        logger.info(f"[{symbol}] {start}~{end} 조회: {len(candles)}건")
         if not candles:
             return 0
         rows = [parse_candle(asset_id, c) for c in candles]
         with get_conn() as conn:
             upsert_ohlcv(conn, rows)
-        logger.info(f"[{symbol}] 저장 완료: {len(rows)}건")
+        logger.info(f"[{symbol}] {day} 저장: {len(rows)}건")
         return len(rows)
     except Exception as e:
-        logger.error(f"[{symbol}] {start}~{end} 실패: {type(e).__name__}: {e}")
+        logger.error(f"[{symbol}] {day} 실패: {type(e).__name__}: {e}")
         raise
 
 
@@ -123,7 +126,7 @@ def backfill_flow(symbols: str | None = None):
     """
     yfinance 1m 분봉 backfill (최대 7일 제약)
     - symbols: 콤마 구분 티커 (예: "AAPL" 또는 "AAPL,MSFT"), None이면 전체
-    - DB 상태 기반으로 범위 자동 결정
+    - DB 누락 날짜 + 경계 buffer만 수집
     """
     logger = get_run_logger()
 
@@ -134,29 +137,35 @@ def backfill_flow(symbols: str | None = None):
     )
     logger.info(f"대상 종목: {len(target_assets)}개 {symbol_list if symbol_list else '(전체)'}")
 
+    today = datetime.now(UTC).date()
+    start = today - timedelta(days=YFINANCE_1M_MAX_DAYS - 1)
+    end = today
+    all_days = get_trading_days(start, end)
+
     with get_conn() as conn:
         ensure_tables(conn)
         asset_id_map = _get_asset_id_map(conn, target_assets)
+        existing = get_existing_days(conn, "NASDAQ", start, end)
 
-    start, end = get_backfill_range()
+    days_to_fetch = get_days_to_fetch(existing, all_days)
+    logger.info(
+        f"전체 {len(all_days)}일 중 수집 대상: {len(days_to_fetch)}일 "
+        f"(DB 보유: {len(existing)}일, 버퍼: ±{BACKFILL_BUFFER_DAYS}일)"
+    )
 
-    # yfinance 1m은 7일 제약 → 7일 단위로 분할
-    logger.info(f"백필 범위: {start} ~ {end}")
-    chunk_start = start
+    if not days_to_fetch:
+        logger.info("백필할 날짜 없음")
+        return
+
     total_rows = 0
-
-    while chunk_start <= end:
-        chunk_end = min(chunk_start + timedelta(days=YFINANCE_1M_MAX_DAYS - 1), end)
-        logger.info(f"청크: {chunk_start} ~ {chunk_end}")
-
+    for day in days_to_fetch:
+        logger.info(f"날짜: {day}")
         for asset in target_assets:
             symbol = asset["symbol"]
             asset_id = asset_id_map[symbol]
-            count = backfill_ticker_range(asset_id, symbol, chunk_start, chunk_end)
+            count = backfill_ticker_day(asset_id, symbol, day)
             total_rows += count
             time.sleep(BATCH_SLEEP)
-
-        chunk_start = chunk_end + timedelta(days=1)
 
     logger.info(f"백필 완료 — 총 {total_rows}건 적재")
 

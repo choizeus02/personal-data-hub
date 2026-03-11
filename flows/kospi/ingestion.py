@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone, date
 from prefect import flow, task, get_run_logger
 from prefect.cache_policies import NO_CACHE
 
-from shared.database import get_conn, ensure_tables, get_or_create_asset, upsert_ohlcv
+from shared.database import get_conn, ensure_tables, get_or_create_asset, upsert_ohlcv, get_existing_days
 from shared.kis_client import get_access_token, fetch_minute_candles, fetch_all_candles_for_day, parse_candle
 from kospi.tickers import KR_STOCKS
 
@@ -17,6 +17,7 @@ MARKET_OPEN = (9, 0)
 MARKET_CLOSE = (15, 30)
 API_SLEEP = 0.07  # 초당 ~14건
 KIS_MAX_HISTORY_DAYS = 365  # KIS API 최대 보관 기간
+BACKFILL_BUFFER_DAYS = 1    # gap 경계 양쪽 ±N일 중복 수집
 
 
 def is_market_open() -> bool:
@@ -38,10 +39,21 @@ def get_trading_days(start: date, end: date) -> list[date]:
     return days
 
 
-def get_backfill_range() -> tuple[date, date]:
-    """KIS API 최대 범위(1년)로 항상 전체 수집. UPSERT로 중복 처리."""
-    today = datetime.now(KST).date()
-    return today - timedelta(days=KIS_MAX_HISTORY_DAYS), today
+def get_days_to_fetch(existing: set, all_days: list[date], buffer: int = BACKFILL_BUFFER_DAYS) -> list[date]:
+    """
+    누락 날짜 + 경계 buffer 반환
+    - missing: all_days 중 DB에 없는 날짜
+    - buffer: missing 날짜 인접 ±N일도 포함 (경계 누락 방지)
+    """
+    all_set = set(all_days)
+    missing = all_set - existing
+    to_fetch = set(missing)
+    for d in missing:
+        for delta in range(1, buffer + 1):
+            for neighbor in (d - timedelta(days=delta), d + timedelta(days=delta)):
+                if neighbor in all_set:
+                    to_fetch.add(neighbor)
+    return sorted(to_fetch)
 
 
 def _get_asset_id_map(conn, assets: list[dict]) -> dict[str, int]:
@@ -137,18 +149,29 @@ def backfill_flow(symbols: str | None = None):
     )
     logger.info(f"대상 종목: {len(target_assets)}개 {symbol_list if symbol_list else '(전체)'}")
 
+    today = datetime.now(KST).date()
+    start = today - timedelta(days=KIS_MAX_HISTORY_DAYS)
+    end = today
+    all_days = get_trading_days(start, end)
+
     with get_conn() as conn:
         ensure_tables(conn)
         token = get_access_token(conn)
         asset_id_map = _get_asset_id_map(conn, target_assets)
+        existing = get_existing_days(conn, "KRX", start, end)
 
-    start, end = get_backfill_range()
+    days_to_fetch = get_days_to_fetch(existing, all_days)
+    logger.info(
+        f"전체 {len(all_days)}일 중 수집 대상: {len(days_to_fetch)}일 "
+        f"(DB 보유: {len(existing)}일, 버퍼: ±{BACKFILL_BUFFER_DAYS}일)"
+    )
 
-    trading_days = get_trading_days(start, end)
-    logger.info(f"백필 범위: {start} ~ {end} ({len(trading_days)}일)")
+    if not days_to_fetch:
+        logger.info("백필할 날짜 없음")
+        return
 
     total_rows = 0
-    for day in trading_days:
+    for day in days_to_fetch:
         date_str = day.strftime("%Y%m%d")
         logger.info(f"날짜: {date_str}")
         for asset in target_assets:
