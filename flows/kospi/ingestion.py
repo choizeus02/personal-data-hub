@@ -134,20 +134,21 @@ def micro_batch_flow():
 
 
 @flow(name="backfill-kospi", log_prints=True)
-def backfill_flow(symbols: list[str] | None = None):
+def backfill_flow(symbols: str | None = None):
     """
     DB 상태를 자동 판단하여 누락 구간 적재
-    - symbols: 특정 종목만 지정 가능 (None이면 전체 종목)
+    - symbols: 콤마 구분 종목 코드 (예: "005930" 또는 "005930,000660"), None이면 전체
     - DB 비어있음 → 최대 1년치 전체 적재
-    - DB에 데이터 있음 → 마지막 날짜 이후부터 어제까지 적재
+    - DB에 데이터 있음 → 마지막 날짜 이후부터 오늘까지 적재
     """
     logger = get_run_logger()
 
+    symbol_list = [s.strip() for s in symbols.split(",")] if symbols else None
     target_assets = (
-        [a for a in KR_STOCKS if a["symbol"] in symbols]
-        if symbols else KR_STOCKS
+        [a for a in KR_STOCKS if a["symbol"] in symbol_list]
+        if symbol_list else KR_STOCKS
     )
-    logger.info(f"대상 종목: {len(target_assets)}개 {symbols if symbols else '(전체)'}")
+    logger.info(f"대상 종목: {len(target_assets)}개 {symbol_list if symbol_list else '(전체)'}")
 
     with get_conn() as conn:
         ensure_tables(conn)

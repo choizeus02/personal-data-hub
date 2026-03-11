@@ -128,19 +128,20 @@ def micro_batch_flow():
 
 
 @flow(name="backfill-nasdaq", log_prints=True)
-def backfill_flow(symbols: list[str] | None = None):
+def backfill_flow(symbols: str | None = None):
     """
     yfinance 1m 분봉 backfill (최대 7일 제약)
-    - symbols: 특정 종목만 지정 (None이면 전체)
+    - symbols: 콤마 구분 티커 (예: "AAPL" 또는 "AAPL,MSFT"), None이면 전체
     - DB 상태 기반으로 범위 자동 결정
     """
     logger = get_run_logger()
 
+    symbol_list = [s.strip() for s in symbols.split(",")] if symbols else None
     target_assets = (
-        [a for a in US_STOCKS if a["symbol"] in symbols]
-        if symbols else US_STOCKS
+        [a for a in US_STOCKS if a["symbol"] in symbol_list]
+        if symbol_list else US_STOCKS
     )
-    logger.info(f"대상 종목: {len(target_assets)}개 {symbols if symbols else '(전체)'}")
+    logger.info(f"대상 종목: {len(target_assets)}개 {symbol_list if symbol_list else '(전체)'}")
 
     with get_conn() as conn:
         ensure_tables(conn)
