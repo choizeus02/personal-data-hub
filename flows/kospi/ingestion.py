@@ -1,12 +1,16 @@
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
 import time
 from datetime import datetime, timedelta, timezone, date
 
 from prefect import flow, task, get_run_logger
 from prefect.cache_policies import NO_CACHE
 
-from database import get_conn, ensure_tables, get_or_create_asset, upsert_ohlcv, get_latest_candle_datetime
-from kis_client import get_access_token, fetch_minute_candles, fetch_all_candles_for_day, parse_candle
-from tickers import KR_STOCKS
+from shared.database import get_conn, ensure_tables, get_or_create_asset, upsert_ohlcv, get_latest_candle_datetime
+from shared.kis_client import get_access_token, fetch_minute_candles, fetch_all_candles_for_day, parse_candle
+from kospi.tickers import KR_STOCKS
 
 KST = timezone(timedelta(hours=9))
 MARKET_OPEN = (9, 0)
@@ -98,7 +102,7 @@ def backfill_ticker_day(asset_id: int, symbol: str, token: str, date_str: str) -
         raise
 
 
-@flow(name="micro-batch-ingestion", log_prints=True)
+@flow(name="micro-batch-kospi", log_prints=True)
 def micro_batch_flow():
     logger = get_run_logger()
 
@@ -129,7 +133,7 @@ def micro_batch_flow():
     logger.info(f"완료 — 성공: {success}, 실패: {fail}")
 
 
-@flow(name="backfill-ingestion", log_prints=True)
+@flow(name="backfill-kospi", log_prints=True)
 def backfill_flow(symbols: list[str] | None = None):
     """
     DB 상태를 자동 판단하여 누락 구간 적재

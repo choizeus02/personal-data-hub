@@ -61,10 +61,5 @@ KR_STOCKS: list[AssetMeta] = [
     {"symbol": "041510", "asset_type": "STOCK", "exchange": "KRX", "currency": "KRW"},  # SM엔터테인먼트
 ]
 
-# 나중에 추가될 자산들 (현재 미사용)
-# US_STOCKS: list[AssetMeta] = [...]
-# FUTURES: list[AssetMeta] = [...]
-# FX: list[AssetMeta] = [...]
-
 # KIS API용 심볼 리스트 (하위 호환)
 TICKERS = [a["symbol"] for a in KR_STOCKS]

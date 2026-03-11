@@ -6,16 +6,32 @@ pull:
       directory: /app
 
 deployments:
-  - name: micro-batch
-    entrypoint: flows/ingestion.py:micro_batch_flow
+  - name: micro-batch-kospi
+    entrypoint: flows/kospi/ingestion.py:micro_batch_flow
     work_pool:
       name: personal-data-hub-pool
     schedules:
       - cron: "* 9-15 * * 1-5"
         timezone: Asia/Seoul
 
-  - name: backfill
-    entrypoint: flows/ingestion.py:backfill_flow
+  - name: backfill-kospi
+    entrypoint: flows/kospi/ingestion.py:backfill_flow
+    work_pool:
+      name: personal-data-hub-pool
+    # 스케줄 없음 — 수동 실행 전용
+
+  - name: micro-batch-nasdaq
+    entrypoint: flows/nasdaq/ingestion.py:micro_batch_flow
+    work_pool:
+      name: personal-data-hub-pool
+    schedules:
+      - cron: "* 14-20 * * 1-5"
+        timezone: UTC
+        # 서머타임(EDT) 기간(3~11월)에는 실제 장이 13:30~20:00 UTC
+        # 보수적으로 14-20 설정 (서머타임 기간 장 시작 30분 늦게 수집 시작)
+
+  - name: backfill-nasdaq
+    entrypoint: flows/nasdaq/ingestion.py:backfill_flow
     work_pool:
       name: personal-data-hub-pool
     # 스케줄 없음 — 수동 실행 전용

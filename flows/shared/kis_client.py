@@ -25,7 +25,7 @@ def fetch_token_from_kis() -> tuple[str, datetime]:
 
 
 def get_access_token(conn) -> str:
-    from database import get_cached_token, save_token
+    from shared.database import get_cached_token, save_token
 
     token = get_cached_token(conn)
     if token:
