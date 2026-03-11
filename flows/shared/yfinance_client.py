@@ -32,23 +32,30 @@ def is_market_open() -> bool:
 
 def _df_to_candles(df) -> list[dict]:
     """DataFrame → candle dict 리스트 변환 (MultiIndex 컬럼 자동 처리)"""
-    # yfinance >= 0.2.31은 단일 종목도 MultiIndex 반환 → 첫 번째 레벨 제거
+    # yfinance >= 0.2.31은 단일 종목도 MultiIndex 반환 → 필드명 레벨만 유지
     if isinstance(df.columns, pd.MultiIndex):
-        df = df.droplevel(1, axis=1)
+        df.columns = df.columns.get_level_values(0)
+
+    # iterrows()는 MultiIndex 잔재 시 Series 반환 → .iat[i] 로 스칼라 직접 접근
+    opens  = df["Open"].values
+    highs  = df["High"].values
+    lows   = df["Low"].values
+    closes = df["Close"].values
+    vols   = df["Volume"].values
 
     result = []
-    for ts, row in df.iterrows():
+    for i, ts in enumerate(df.index):
         if hasattr(ts, "to_pydatetime"):
             ts = ts.to_pydatetime()
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)
         result.append({
             "time": ts,
-            "open": float(row["Open"]),
-            "high": float(row["High"]),
-            "low": float(row["Low"]),
-            "close": float(row["Close"]),
-            "volume": int(row["Volume"]),
+            "open": float(opens[i]),
+            "high": float(highs[i]),
+            "low": float(lows[i]),
+            "close": float(closes[i]),
+            "volume": int(vols[i]),
         })
     return result
 
