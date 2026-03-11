@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone, date
 from prefect import flow, task, get_run_logger
 from prefect.cache_policies import NO_CACHE
 
-from shared.database import get_conn, ensure_tables, get_or_create_asset, upsert_ohlcv, get_latest_candle_datetime
+from shared.database import get_conn, ensure_tables, get_or_create_asset, upsert_ohlcv
 from shared.yfinance_client import (
     is_market_open,
     fetch_latest_candle,
@@ -33,23 +33,14 @@ def get_trading_days(start: date, end: date) -> list[date]:
     return days
 
 
-def get_backfill_range(conn) -> tuple[date, date]:
+def get_backfill_range() -> tuple[date, date]:
     """
-    DB 상태 기반 backfill 범위 결정
-    - DB 비어있음: yfinance 1m 제약(7일) 이내 최대치
-    - DB에 데이터 있음: 마지막 날짜 다음날부터
-    종료일: 오늘 (당일 데이터도 포함)
+    yfinance 1m 제약(7일)으로 인해 항상 최근 7일을 대상으로 함.
+    DB 상태 무관 — UPSERT로 중복 처리.
     """
-    latest_dt = get_latest_candle_datetime(conn, exchange="NASDAQ")
     today = datetime.now(UTC).date()
-    end = today
-
-    if latest_dt is None:
-        start = today - timedelta(days=YFINANCE_1M_MAX_DAYS - 1)
-    else:
-        start = latest_dt.date() + timedelta(days=1)
-
-    return start, end
+    start = today - timedelta(days=YFINANCE_1M_MAX_DAYS - 1)
+    return start, today
 
 
 def _get_asset_id_map(conn, assets: list[dict]) -> dict[str, int]:
@@ -146,11 +137,8 @@ def backfill_flow(symbols: str | None = None):
     with get_conn() as conn:
         ensure_tables(conn)
         asset_id_map = _get_asset_id_map(conn, target_assets)
-        start, end = get_backfill_range(conn)
 
-    if start > end:
-        logger.info("백필할 데이터 없음 (이미 최신)")
-        return
+    start, end = get_backfill_range()
 
     # yfinance 1m은 7일 제약 → 7일 단위로 분할
     logger.info(f"백필 범위: {start} ~ {end}")

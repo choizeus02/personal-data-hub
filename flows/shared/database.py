@@ -120,6 +120,22 @@ def save_token(conn, access_token: str, expires_at):
         )
 
 
+def get_earliest_candle_datetime(conn, exchange: str | None = None):
+    """가장 오래된 분봉 시간 반환 (역사 데이터 gap 확인용)"""
+    with conn.cursor() as cur:
+        if exchange:
+            cur.execute("""
+                SELECT MIN(o.time)
+                FROM ohlcv_min o
+                JOIN assets a ON a.id = o.asset_id
+                WHERE a.exchange = %s
+            """, (exchange,))
+        else:
+            cur.execute("SELECT MIN(time) FROM ohlcv_min")
+        row = cur.fetchone()
+    return row[0] if row and row[0] else None
+
+
 def get_latest_candle_datetime(conn, exchange: str | None = None):
     """
     가장 최근 분봉 시간 반환 (backfill range 계산용)
