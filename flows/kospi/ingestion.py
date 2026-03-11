@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone, date
 from prefect import flow, task, get_run_logger
 from prefect.cache_policies import NO_CACHE
 
-from shared.database import get_conn, ensure_tables, get_or_create_asset, upsert_ohlcv, get_latest_candle_datetime, get_earliest_candle_datetime
+from shared.database import get_conn, ensure_tables, get_or_create_asset, upsert_ohlcv
 from shared.kis_client import get_access_token, fetch_minute_candles, fetch_all_candles_for_day, parse_candle
 from kospi.tickers import KR_STOCKS
 
@@ -38,32 +38,10 @@ def get_trading_days(start: date, end: date) -> list[date]:
     return days
 
 
-def get_backfill_range(conn) -> tuple[date, date]:
-    """
-    DB 상태를 보고 backfill 시작/종료일 자동 결정
-
-    두 단계 우선순위:
-    1. 역사 데이터 부족 → MAX_HISTORY 전부터 가장 오래된 데이터 직전까지 채우기
-    2. 역사 데이터 충분 → 가장 최신 데이터 다음날부터 오늘까지 채우기
-    (micro-batch가 오늘 데이터를 먼저 넣어도 역사 backfill이 올바르게 동작)
-    """
+def get_backfill_range() -> tuple[date, date]:
+    """KIS API 최대 범위(1년)로 항상 전체 수집. UPSERT로 중복 처리."""
     today = datetime.now(KST).date()
-    max_possible_start = today - timedelta(days=KIS_MAX_HISTORY_DAYS)
-
-    earliest_dt = get_earliest_candle_datetime(conn, exchange="KRX")
-
-    if earliest_dt is None:
-        return max_possible_start, today
-
-    earliest_date = earliest_dt.date()
-    if earliest_date > max_possible_start + timedelta(days=1):
-        # 역사 데이터 부족 → 과거부터 채우기 (이미 있는 데이터 직전까지)
-        return max_possible_start, earliest_date - timedelta(days=1)
-
-    # 역사 데이터 충분 → 최신 gap 채우기
-    latest_dt = get_latest_candle_datetime(conn, exchange="KRX")
-    start = latest_dt.date() + timedelta(days=1) if latest_dt else max_possible_start
-    return start, today
+    return today - timedelta(days=KIS_MAX_HISTORY_DAYS), today
 
 
 def _get_asset_id_map(conn, assets: list[dict]) -> dict[str, int]:
@@ -163,11 +141,8 @@ def backfill_flow(symbols: str | None = None):
         ensure_tables(conn)
         token = get_access_token(conn)
         asset_id_map = _get_asset_id_map(conn, target_assets)
-        start, end = get_backfill_range(conn)
 
-    if start > end:
-        logger.info("백필할 데이터 없음 (이미 최신)")
-        return
+    start, end = get_backfill_range()
 
     trading_days = get_trading_days(start, end)
     logger.info(f"백필 범위: {start} ~ {end} ({len(trading_days)}일)")
