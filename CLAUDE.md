@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 개인 관심 종목(약 50개)의 1분봉 주가 데이터를 수집·저장하고 커스텀 대시보드로 모니터링하는 홈랩 기반 통합 시스템. **초단타 자동매매 봇이 아님.**
 
-데이터 소스: 한국투자증권(KIS) REST API
+데이터 소스: 한국투자증권(KIS) REST API (KOSPI), yfinance (NASDAQ)
 
 ---
 
@@ -60,11 +60,18 @@ ArgoCD (K3s 내부)
 
 ### 핵심 워크플로우
 
-1. **Backfill ETL** — 타겟 종목 리스트를 읽어 과거 1분봉 일괄 수집 → PostgreSQL Bulk Insert
-2. **Micro-batch** — 장 운영 시간(09:00~15:30) Prefect 스케줄러가 1분마다 트리거
+1. **Micro-batch** — 장 운영 시간 Prefect 스케줄러가 1분마다 트리거
    - 종목별 최신 1분봉 단건 동기 조회
-   - API Rate Limit(초당 10~20건) 회피를 위해 반복문 사이에 `sleep` 부여
+   - API Rate Limit 회피를 위해 반복문 사이에 `sleep` 부여
    - PostgreSQL Upsert (중복 방지)
+
+2. **Backfill** — 수동 실행, DB 누락 구간 자동 탐지 후 적재
+   - 수집 범위: KOSPI 최대 365일, NASDAQ 최대 7일 (API 제약)
+   - `get_existing_days(conn, exchange, start, end)` 로 DB에 이미 있는 날짜 조회
+   - 누락 날짜 = 전체 영업일 - DB 보유 날짜
+   - 경계 누락 방지를 위해 누락 날짜 인접 **±1일 buffer** 추가 수집
+   - UPSERT로 중복 무해하게 처리 (재실행 안전)
+   - `symbols` 파라미터: 콤마 구분 문자열 (`"AAPL"` 또는 `"AAPL,MSFT"`), 미입력 시 전체
 
 ### 아키텍처 결정 근거
 
