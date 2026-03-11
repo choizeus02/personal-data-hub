@@ -38,11 +38,11 @@ def get_backfill_range(conn) -> tuple[date, date]:
     DB 상태 기반 backfill 범위 결정
     - DB 비어있음: yfinance 1m 제약(7일) 이내 최대치
     - DB에 데이터 있음: 마지막 날짜 다음날부터
-    종료일: 어제
+    종료일: 오늘 (당일 데이터도 포함)
     """
-    latest_dt = get_latest_candle_datetime(conn)
+    latest_dt = get_latest_candle_datetime(conn, exchange="NASDAQ")
     today = datetime.now(UTC).date()
-    end = today - timedelta(days=1)
+    end = today
 
     if latest_dt is None:
         start = today - timedelta(days=YFINANCE_1M_MAX_DAYS - 1)

@@ -120,10 +120,21 @@ def save_token(conn, access_token: str, expires_at):
         )
 
 
-def get_latest_candle_datetime(conn):
-    """전체 자산 기준 가장 최근 분봉 시간 반환 (backfill range 계산용)"""
+def get_latest_candle_datetime(conn, exchange: str | None = None):
+    """
+    가장 최근 분봉 시간 반환 (backfill range 계산용)
+    exchange 지정 시 해당 거래소 자산만 조회 (KRX / NASDAQ 등)
+    """
     with conn.cursor() as cur:
-        cur.execute("SELECT MAX(time) FROM ohlcv_min")
+        if exchange:
+            cur.execute("""
+                SELECT MAX(o.time)
+                FROM ohlcv_min o
+                JOIN assets a ON a.id = o.asset_id
+                WHERE a.exchange = %s
+            """, (exchange,))
+        else:
+            cur.execute("SELECT MAX(time) FROM ohlcv_min")
         row = cur.fetchone()
     return row[0] if row and row[0] else None
 

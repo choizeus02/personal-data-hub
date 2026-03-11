@@ -43,11 +43,11 @@ def get_backfill_range(conn) -> tuple[date, date]:
     DB 상태를 보고 backfill 시작/종료일 자동 결정
     - DB 비어있음: 1년 전부터
     - DB에 데이터 있음: 마지막 데이터 다음날부터
-    종료일: 어제 (오늘 데이터는 micro_batch 담당)
+    종료일: 오늘 (당일 데이터도 포함 — 당일 장중이면 지금까지 수집된 것까지)
     """
-    latest_dt = get_latest_candle_datetime(conn)
+    latest_dt = get_latest_candle_datetime(conn, exchange="KRX")
     today = datetime.now(KST).date()
-    end = today - timedelta(days=1)
+    end = today
 
     if latest_dt is None:
         start = today - timedelta(days=KIS_MAX_HISTORY_DAYS)
