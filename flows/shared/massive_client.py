@@ -29,7 +29,6 @@ def iter_minute_bars(ticker: str, start: date, end: date):
 
     page = 1
     while url:
-        print(f"[Massive] {ticker} 페이지 {page} 요청 중... (sleep {RATE_LIMIT_SLEEP}s)")
         time.sleep(RATE_LIMIT_SLEEP)
         resp = requests.get(url, params=params, timeout=30)
         resp.raise_for_status()
@@ -39,7 +38,6 @@ def iter_minute_bars(ticker: str, start: date, end: date):
             raise RuntimeError(f"Massive API 오류: {data.get('status')} / {data}")
 
         bars = data.get("results") or []
-        print(f"[Massive] {ticker} 페이지 {page} 수신: {len(bars)}건 (누적 예정)")
         yield page, bars
 
         next_url = data.get("next_url")

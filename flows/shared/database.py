@@ -7,28 +7,21 @@ from psycopg2.extras import execute_values
 
 @contextmanager
 def get_conn():
-    host = os.environ["DB_HOST"]
-    dbname = os.environ["DB_NAME"]
-    print(f"[DB] 연결 시도: {host}/{dbname}")
     conn = psycopg2.connect(
-        host=host,
+        host=os.environ["DB_HOST"],
         port=os.environ["DB_PORT"],
-        dbname=dbname,
+        dbname=os.environ["DB_NAME"],
         user=os.environ["DB_USER"],
         password=os.environ["DB_PASSWORD"],
     )
-    print(f"[DB] 연결 성공")
     try:
         yield conn
         conn.commit()
-        print(f"[DB] 커밋 완료")
     except Exception as e:
         conn.rollback()
-        print(f"[DB] 롤백: {e}")
         raise
     finally:
         conn.close()
-        print(f"[DB] 연결 종료")
 
 
 def ensure_tables(conn):

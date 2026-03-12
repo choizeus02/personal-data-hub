@@ -102,20 +102,22 @@ def backfill_ticker_massive(asset_id: int, symbol: str, start: date, end: date) 
         total = 0
         for page, bars in iter_minute_bars(symbol, start, end):
             if not bars:
-                logger.info(f"[{symbol}] 페이지 {page} 데이터 없음, 종료")
                 break
             rows = [parse_bar(asset_id, b) for b in bars]
             with get_conn() as conn:
                 upsert_ohlcv(conn, rows)
-            total += len(rows)
-            logger.info(f"[{symbol}] 페이지 {page} 저장: {len(rows)}건 (누적: {total}건)")
+            total += len(bars)
+            # 페이지 내 첫/마지막 날짜
+            first_day = datetime.fromtimestamp(bars[0]["t"] / 1000, tz=UTC).strftime("%Y-%m-%d")
+            last_day  = datetime.fromtimestamp(bars[-1]["t"] / 1000, tz=UTC).strftime("%Y-%m-%d")
+            logger.info(f"[{symbol}] p{page} {first_day}~{last_day}  +{len(bars):,}건  누적 {total:,}건")
         if total == 0:
             logger.warning(f"[{symbol}] {start}~{end} 데이터 없음")
         else:
-            logger.info(f"[{symbol}] 완료 — 총 {total}건")
+            logger.info(f"[{symbol}] 완료 ── {start}~{end}  총 {total:,}건")
         return total
     except Exception as e:
-        logger.error(f"[{symbol}] {start}~{end} 실패: {type(e).__name__}: {e}")
+        logger.error(f"[{symbol}] 실패: {type(e).__name__}: {e}")
         raise
 
 
@@ -177,14 +179,15 @@ def backfill_flow(symbols: str | None = None):
         logger.info(f"Massive.com 모드: {start} ~ {end} (최대 {MASSIVE_MAX_HISTORY_DAYS}일)")
 
         total_rows = 0
-        for asset in target_assets:
+        n = len(target_assets)
+        for i, asset in enumerate(target_assets, 1):
             symbol = asset["symbol"]
             asset_id = asset_id_map[symbol]
+            logger.info(f"── [{i}/{n}] {symbol} 시작 ({start}~{end})")
             count = backfill_ticker_massive(asset_id, symbol, start, end)
             total_rows += count
-            # RATE_LIMIT_SLEEP은 fetch_minute_bars 내부에서 처리
 
-        logger.info(f"백필 완료 — 총 {total_rows}건 적재")
+        logger.info(f"백필 완료 ── {n}개 종목  총 {total_rows:,}건 적재")
 
     else:
         start = today - timedelta(days=YFINANCE_1M_MAX_DAYS - 1)
