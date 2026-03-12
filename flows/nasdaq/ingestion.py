@@ -16,6 +16,7 @@ from shared.yfinance_client import (
     parse_candle,
     YFINANCE_1M_MAX_DAYS,
 )
+from shared.massive_client import fetch_minute_bars, parse_bar, MASSIVE_MAX_HISTORY_DAYS
 from nasdaq.tickers import US_STOCKS
 
 UTC = timezone.utc
@@ -75,7 +76,7 @@ def fetch_and_upsert(asset_id: int, symbol: str) -> bool:
 
 @task(retries=2, retry_delay_seconds=10, cache_policy=NO_CACHE)
 def backfill_ticker_day(asset_id: int, symbol: str, day: date) -> int:
-    """단일 종목 단일 날짜 전체 분봉 적재"""
+    """단일 종목 단일 날짜 전체 분봉 적재 (yfinance)"""
     logger = get_run_logger()
     try:
         start_dt = datetime(day.year, day.month, day.day, tzinfo=UTC)
@@ -90,6 +91,25 @@ def backfill_ticker_day(asset_id: int, symbol: str, day: date) -> int:
         return len(rows)
     except Exception as e:
         logger.error(f"[{symbol}] {day} 실패: {type(e).__name__}: {e}")
+        raise
+
+
+@task(retries=2, retry_delay_seconds=30, cache_policy=NO_CACHE)
+def backfill_ticker_massive(asset_id: int, symbol: str, start: date, end: date) -> int:
+    """단일 종목 전체 range 분봉 적재 (Massive.com, 2년치 가능)"""
+    logger = get_run_logger()
+    try:
+        bars = fetch_minute_bars(symbol, start, end)
+        if not bars:
+            logger.warning(f"[{symbol}] {start}~{end} 데이터 없음")
+            return 0
+        rows = [parse_bar(asset_id, b) for b in bars]
+        with get_conn() as conn:
+            upsert_ohlcv(conn, rows)
+        logger.info(f"[{symbol}] {start}~{end} 저장: {len(rows)}건")
+        return len(rows)
+    except Exception as e:
+        logger.error(f"[{symbol}] {start}~{end} 실패: {type(e).__name__}: {e}")
         raise
 
 
@@ -124,9 +144,10 @@ def micro_batch_flow():
 @flow(name="backfill-nasdaq", log_prints=True)
 def backfill_flow(symbols: str | None = None):
     """
-    yfinance 1m 분봉 backfill (최대 7일 제약)
+    NASDAQ 1m 분봉 backfill
+    - MASSIVE_API_KEY 환경변수 있으면 Massive.com으로 2년치 수집 (종목별 전체 range 1회 호출)
+    - 없으면 yfinance fallback (최대 7일, gap detection)
     - symbols: 콤마 구분 티커 (예: "AAPL" 또는 "AAPL,MSFT"), None이면 전체
-    - DB 누락 날짜 + 경계 buffer만 수집
     """
     logger = get_run_logger()
 
@@ -137,37 +158,57 @@ def backfill_flow(symbols: str | None = None):
     )
     logger.info(f"대상 종목: {len(target_assets)}개 {symbol_list if symbol_list else '(전체)'}")
 
+    use_massive = bool(os.environ.get("MASSIVE_API_KEY"))
     today = datetime.now(UTC).date()
-    start = today - timedelta(days=YFINANCE_1M_MAX_DAYS - 1)
-    end = today
-    all_days = get_trading_days(start, end)
 
     with get_conn() as conn:
         ensure_tables(conn)
         asset_id_map = _get_asset_id_map(conn, target_assets)
-        existing = get_existing_days(conn, "NASDAQ", start, end)
 
-    days_to_fetch = get_days_to_fetch(existing, all_days)
-    logger.info(
-        f"전체 {len(all_days)}일 중 수집 대상: {len(days_to_fetch)}일 "
-        f"(DB 보유: {len(existing)}일, 버퍼: ±{BACKFILL_BUFFER_DAYS}일)"
-    )
+    if use_massive:
+        start = today - timedelta(days=MASSIVE_MAX_HISTORY_DAYS - 1)
+        end = today
+        logger.info(f"Massive.com 모드: {start} ~ {end} (최대 {MASSIVE_MAX_HISTORY_DAYS}일)")
 
-    if not days_to_fetch:
-        logger.info("백필할 날짜 없음")
-        return
-
-    total_rows = 0
-    for day in days_to_fetch:
-        logger.info(f"날짜: {day}")
+        total_rows = 0
         for asset in target_assets:
             symbol = asset["symbol"]
             asset_id = asset_id_map[symbol]
-            count = backfill_ticker_day(asset_id, symbol, day)
+            count = backfill_ticker_massive(asset_id, symbol, start, end)
             total_rows += count
-            time.sleep(BATCH_SLEEP)
+            # RATE_LIMIT_SLEEP은 fetch_minute_bars 내부에서 처리
 
-    logger.info(f"백필 완료 — 총 {total_rows}건 적재")
+        logger.info(f"백필 완료 — 총 {total_rows}건 적재")
+
+    else:
+        start = today - timedelta(days=YFINANCE_1M_MAX_DAYS - 1)
+        end = today
+        all_days = get_trading_days(start, end)
+
+        with get_conn() as conn:
+            existing = get_existing_days(conn, "NASDAQ", start, end)
+
+        days_to_fetch = get_days_to_fetch(existing, all_days)
+        logger.info(
+            f"yfinance 모드: 전체 {len(all_days)}일 중 수집 대상: {len(days_to_fetch)}일 "
+            f"(DB 보유: {len(existing)}일, 버퍼: ±{BACKFILL_BUFFER_DAYS}일)"
+        )
+
+        if not days_to_fetch:
+            logger.info("백필할 날짜 없음")
+            return
+
+        total_rows = 0
+        for day in days_to_fetch:
+            logger.info(f"날짜: {day}")
+            for asset in target_assets:
+                symbol = asset["symbol"]
+                asset_id = asset_id_map[symbol]
+                count = backfill_ticker_day(asset_id, symbol, day)
+                total_rows += count
+                time.sleep(BATCH_SLEEP)
+
+        logger.info(f"백필 완료 — 총 {total_rows}건 적재")
 
 
 if __name__ == "__main__":
