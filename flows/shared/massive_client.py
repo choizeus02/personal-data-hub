@@ -12,10 +12,10 @@ MASSIVE_MAX_HISTORY_DAYS = 720  # 무료 플랜 2년
 RATE_LIMIT_SLEEP = 13.0         # 5 calls/min 안전 마진 (60/5 + 1)
 
 
-def fetch_minute_bars(ticker: str, start: date, end: date) -> list[dict]:
+def iter_minute_bars(ticker: str, start: date, end: date):
     """
-    1분봉 OHLCV 조회 (페이지네이션 자동 처리)
-    - split adjusted 기본 적용
+    1분봉 OHLCV 페이지 단위 generator
+    - 페이지마다 (page_num, bars) yield → 호출측에서 즉시 upsert 가능
     - 호출마다 sleep → 5 calls/min 준수
     """
     api_key = os.environ["MASSIVE_API_KEY"]
@@ -27,8 +27,9 @@ def fetch_minute_bars(ticker: str, start: date, end: date) -> list[dict]:
         "apiKey": api_key,
     }
 
-    results = []
+    page = 1
     while url:
+        print(f"[Massive] {ticker} 페이지 {page} 요청 중... (sleep {RATE_LIMIT_SLEEP}s)")
         time.sleep(RATE_LIMIT_SLEEP)
         resp = requests.get(url, params=params, timeout=30)
         resp.raise_for_status()
@@ -37,11 +38,21 @@ def fetch_minute_bars(ticker: str, start: date, end: date) -> list[dict]:
         if data.get("status") not in ("OK", "DELAYED"):
             raise RuntimeError(f"Massive API 오류: {data.get('status')} / {data}")
 
-        results.extend(data.get("results") or [])
+        bars = data.get("results") or []
+        print(f"[Massive] {ticker} 페이지 {page} 수신: {len(bars)}건 (누적 예정)")
+        yield page, bars
+
         next_url = data.get("next_url")
         url = next_url
-        params = {"apiKey": api_key}  # next_url은 cursor 포함, apiKey만 추가
+        params = {"apiKey": api_key}
+        page += 1
 
+
+def fetch_minute_bars(ticker: str, start: date, end: date) -> list[dict]:
+    """전체 페이지 한 번에 반환 (하위 호환용)"""
+    results = []
+    for _, bars in iter_minute_bars(ticker, start, end):
+        results.extend(bars)
     return results
 
 

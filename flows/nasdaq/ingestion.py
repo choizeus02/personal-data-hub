@@ -16,7 +16,7 @@ from shared.yfinance_client import (
     parse_candle,
     YFINANCE_1M_MAX_DAYS,
 )
-from shared.massive_client import fetch_minute_bars, parse_bar, MASSIVE_MAX_HISTORY_DAYS
+from shared.massive_client import iter_minute_bars, parse_bar, MASSIVE_MAX_HISTORY_DAYS
 from nasdaq.tickers import US_STOCKS
 
 UTC = timezone.utc
@@ -96,18 +96,24 @@ def backfill_ticker_day(asset_id: int, symbol: str, day: date) -> int:
 
 @task(retries=2, retry_delay_seconds=30, cache_policy=NO_CACHE)
 def backfill_ticker_massive(asset_id: int, symbol: str, start: date, end: date) -> int:
-    """단일 종목 전체 range 분봉 적재 (Massive.com, 2년치 가능)"""
+    """단일 종목 전체 range 분봉 적재 (Massive.com, 2년치 가능) — 페이지별 즉시 upsert"""
     logger = get_run_logger()
     try:
-        bars = fetch_minute_bars(symbol, start, end)
-        if not bars:
+        total = 0
+        for page, bars in iter_minute_bars(symbol, start, end):
+            if not bars:
+                logger.info(f"[{symbol}] 페이지 {page} 데이터 없음, 종료")
+                break
+            rows = [parse_bar(asset_id, b) for b in bars]
+            with get_conn() as conn:
+                upsert_ohlcv(conn, rows)
+            total += len(rows)
+            logger.info(f"[{symbol}] 페이지 {page} 저장: {len(rows)}건 (누적: {total}건)")
+        if total == 0:
             logger.warning(f"[{symbol}] {start}~{end} 데이터 없음")
-            return 0
-        rows = [parse_bar(asset_id, b) for b in bars]
-        with get_conn() as conn:
-            upsert_ohlcv(conn, rows)
-        logger.info(f"[{symbol}] {start}~{end} 저장: {len(rows)}건")
-        return len(rows)
+        else:
+            logger.info(f"[{symbol}] 완료 — 총 {total}건")
+        return total
     except Exception as e:
         logger.error(f"[{symbol}] {start}~{end} 실패: {type(e).__name__}: {e}")
         raise
