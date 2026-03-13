@@ -58,6 +58,7 @@ def fetch_minute_candles(ticker: str, token: str, time_str: str) -> list[dict]:
         f"{KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice",
         headers=_headers(token, "FHKST03010200"),
         params={
+            "FID_COND_MRKT_DIV_CODE": "J",
             "FID_ETC_CLS_CODE": "0",
             "FID_INPUT_ISCD": ticker,
             "FID_INPUT_HOUR_1": time_str,
