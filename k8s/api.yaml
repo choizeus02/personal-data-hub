@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trading-api
+  namespace: trading
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trading-api
+  template:
+    metadata:
+      labels:
+        app: trading-api
+    spec:
+      containers:
+        - name: trading-api
+          image: ghcr.io/choizeus02/personal-data-hub-api:latest
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: personal-data-hub-secret
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trading-api
+  namespace: trading
+spec:
+  type: ClusterIP
+  selector:
+    app: trading-api
+  ports:
+    - port: 8000
+      targetPort: 8000
