@@ -26,8 +26,10 @@ def is_market_open() -> bool:
     now_et = datetime.now(ET)
     if now_et.weekday() >= 5:
         return False
-    t = (now_et.hour, now_et.minute)
-    return MARKET_OPEN_ET <= t <= MARKET_CLOSE_ET
+    total_minutes = now_et.hour * 60 + now_et.minute
+    open_minutes  = MARKET_OPEN_ET[0]  * 60 + MARKET_OPEN_ET[1]   # 9*60+30 = 570
+    close_minutes = MARKET_CLOSE_ET[0] * 60 + MARKET_CLOSE_ET[1]  # 16*60+0 = 960
+    return open_minutes <= total_minutes <= close_minutes
 
 
 def _df_to_candles(df) -> list[dict]:

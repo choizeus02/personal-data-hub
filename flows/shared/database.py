@@ -166,6 +166,31 @@ def get_latest_candle_datetime(conn, exchange: str | None = None):
     return row[0] if row and row[0] else None
 
 
+def get_trading_days(start, end) -> list:
+    """start ~ end 사이 평일(영업일 근사치) 리스트 반환"""
+    from datetime import timedelta
+    days, cur = [], start
+    while cur <= end:
+        if cur.weekday() < 5:
+            days.append(cur)
+        cur += timedelta(days=1)
+    return days
+
+
+def get_days_to_fetch(existing: set, all_days: list, buffer: int = 1) -> list:
+    """누락 날짜 + 경계 ±buffer일 반환"""
+    from datetime import timedelta
+    all_set = set(all_days)
+    missing = all_set - existing
+    to_fetch = set(missing)
+    for d in missing:
+        for delta in range(1, buffer + 1):
+            for neighbor in (d - timedelta(days=delta), d + timedelta(days=delta)):
+                if neighbor in all_set:
+                    to_fetch.add(neighbor)
+    return sorted(to_fetch)
+
+
 def upsert_ohlcv(conn, rows: list[tuple]):
     """
     rows: [(time, asset_id, open, high, low, close, volume, source), ...]

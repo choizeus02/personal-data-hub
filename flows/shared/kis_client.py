@@ -99,8 +99,7 @@ def fetch_daily_minute_candles(
     data = resp.json()
 
     if data.get("rt_cd") != "0":
-        print(f"[KIS] API 오류: rt_cd={data.get('rt_cd')}, msg={data.get('msg1', '')}")
-        return [], " "
+        raise RuntimeError(f"KIS API 오류: rt_cd={data.get('rt_cd')}, msg={data.get('msg1', '')}")
 
     next_tr_cont = resp.headers.get("tr_cont", " ")
     return data.get("output2", []), next_tr_cont

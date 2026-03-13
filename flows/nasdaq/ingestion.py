@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone, date
 from prefect import flow, task, get_run_logger
 from prefect.cache_policies import NO_CACHE
 
-from shared.database import get_conn, ensure_tables, get_or_create_asset, upsert_ohlcv, get_existing_days
+from shared.database import get_conn, ensure_tables, get_or_create_asset, upsert_ohlcv, get_existing_days, get_trading_days, get_days_to_fetch
 from shared.yfinance_client import (
     is_market_open,
     fetch_latest_candle,
@@ -23,29 +23,6 @@ UTC = timezone.utc
 BATCH_SLEEP = 0.2  # 종목 간 딜레이 (Yahoo 레이트 리밋 완화)
 BACKFILL_BUFFER_DAYS = 1  # gap 경계 양쪽 ±N일 중복 수집
 
-
-def get_trading_days(start: date, end: date) -> list[date]:
-    """start ~ end 사이 평일 리스트 반환"""
-    days = []
-    cur = start
-    while cur <= end:
-        if cur.weekday() < 5:
-            days.append(cur)
-        cur += timedelta(days=1)
-    return days
-
-
-def get_days_to_fetch(existing: set, all_days: list[date], buffer: int = BACKFILL_BUFFER_DAYS) -> list[date]:
-    """누락 날짜 + 경계 buffer 반환"""
-    all_set = set(all_days)
-    missing = all_set - existing
-    to_fetch = set(missing)
-    for d in missing:
-        for delta in range(1, buffer + 1):
-            for neighbor in (d - timedelta(days=delta), d + timedelta(days=delta)):
-                if neighbor in all_set:
-                    to_fetch.add(neighbor)
-    return sorted(to_fetch)
 
 
 def _get_asset_id_map(conn, assets: list[dict]) -> dict[str, int]:
