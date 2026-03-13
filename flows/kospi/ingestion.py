@@ -72,10 +72,12 @@ def fetch_and_upsert(asset_id: int, symbol: str, token: str, time_str: str) -> b
     try:
         candles = fetch_minute_candles(symbol, token, time_str)
         if not candles:
+            logger.warning(f"[{symbol}] 응답 없음 (빈 output2)")
             return False
-        rows = [parse_candle(asset_id, c) for c in candles[:1]]
+        row = parse_candle(asset_id, candles[0])
         with get_conn() as conn:
-            upsert_ohlcv(conn, rows)
+            upsert_ohlcv(conn, [row])
+        logger.info(f"[{symbol}] 저장: {row[0].strftime('%H:%M')}  {row[5]:,}원")
         return True
     except Exception as e:
         logger.error(f"[{symbol}] 실패: {type(e).__name__}: {e}")
@@ -88,13 +90,13 @@ def backfill_ticker_day(asset_id: int, symbol: str, token: str, date_str: str) -
     logger = get_run_logger()
     try:
         candles = fetch_all_candles_for_day(symbol, token, date_str, sleep_sec=API_SLEEP)
-        logger.info(f"[{symbol}] {date_str} 조회: {len(candles)}건")
         if not candles:
+            logger.info(f"[{symbol}] {date_str} 데이터 없음")
             return 0
         rows = [parse_candle(asset_id, c) for c in candles]
         with get_conn() as conn:
             upsert_ohlcv(conn, rows)
-        logger.info(f"[{symbol}] {date_str} 저장 완료: {len(rows)}건")
+        logger.info(f"[{symbol}] {date_str}  {len(rows)}건 저장")
         return len(rows)
     except Exception as e:
         logger.error(f"[{symbol}] {date_str} 실패: {type(e).__name__}: {e}")
@@ -111,7 +113,8 @@ def micro_batch_flow():
 
     now = datetime.now(KST)
     time_str = now.strftime("%H%M%S")
-    logger.info(f"수집 시작: {time_str}, 종목 수: {len(KR_STOCKS)}")
+    n = len(KR_STOCKS)
+    logger.info(f"수집 시작  {now.strftime('%H:%M:%S')} KST  ({n}종목)")
 
     with get_conn() as conn:
         ensure_tables(conn)
@@ -129,7 +132,7 @@ def micro_batch_flow():
             fail += 1
         time.sleep(API_SLEEP)
 
-    logger.info(f"완료 — 성공: {success}, 실패: {fail}")
+    logger.info(f"완료  성공 {success}/{n}  실패 {fail}")
 
 
 @flow(name="backfill-kospi", log_prints=True)
@@ -162,18 +165,19 @@ def backfill_flow(symbols: str | None = None):
 
     days_to_fetch = get_days_to_fetch(existing, all_days)
     logger.info(
-        f"전체 {len(all_days)}일 중 수집 대상: {len(days_to_fetch)}일 "
-        f"(DB 보유: {len(existing)}일, 버퍼: ±{BACKFILL_BUFFER_DAYS}일)"
+        f"수집 대상 {len(days_to_fetch)}일 / 전체 {len(all_days)}일  "
+        f"(DB {len(existing)}일 보유, ±{BACKFILL_BUFFER_DAYS}일 버퍼)"
     )
 
     if not days_to_fetch:
         logger.info("백필할 날짜 없음")
         return
 
+    n = len(target_assets)
     total_rows = 0
-    for day in days_to_fetch:
+    for i, day in enumerate(days_to_fetch, 1):
         date_str = day.strftime("%Y%m%d")
-        logger.info(f"날짜: {date_str}")
+        logger.info(f"── [{i}/{len(days_to_fetch)}] {date_str}")
         for asset in target_assets:
             symbol = asset["symbol"]
             asset_id = asset_id_map[symbol]
@@ -181,7 +185,7 @@ def backfill_flow(symbols: str | None = None):
             total_rows += count
             time.sleep(API_SLEEP)
 
-    logger.info(f"백필 완료 — 총 {total_rows}건 적재")
+    logger.info(f"백필 완료 ── {n}종목 × {len(days_to_fetch)}일  총 {total_rows:,}건")
 
 
 if __name__ == "__main__":

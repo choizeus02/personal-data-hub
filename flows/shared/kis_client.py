@@ -29,12 +29,10 @@ def get_access_token(conn) -> str:
 
     token = get_cached_token(conn)
     if token:
-        print("[KIS] 캐시된 토큰 사용")
         return token
 
-    print("[KIS] 신규 토큰 발급 시도")
     token, expires_at = fetch_token_from_kis()
-    print(f"[KIS] 토큰 발급 완료, 만료: {expires_at}")
+    print(f"[KIS] 신규 토큰 발급  만료: {expires_at.strftime('%Y-%m-%d %H:%M')}")
     save_token(conn, token, expires_at)
     return token
 
@@ -68,7 +66,10 @@ def fetch_minute_candles(ticker: str, token: str, time_str: str) -> list[dict]:
         timeout=10,
     )
     resp.raise_for_status()
-    return resp.json().get("output2", [])
+    data = resp.json()
+    if data.get("rt_cd") != "0":
+        raise RuntimeError(f"KIS API 오류: rt_cd={data.get('rt_cd')}, msg={data.get('msg1', '')}")
+    return data.get("output2", [])
 
 
 def fetch_daily_minute_candles(
