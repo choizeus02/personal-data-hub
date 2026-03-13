@@ -90,7 +90,7 @@ def fetch_candles_for_range(ticker: str, start: datetime, end: datetime) -> list
 
 def parse_candle(asset_id: int, raw: dict) -> tuple:
     """
-    yfinance 응답 dict → (time, asset_id, open, high, low, close, volume)
+    yfinance 응답 dict → (time, asset_id, open, high, low, close, volume, source)
     """
     return (
         raw["time"],
@@ -100,4 +100,5 @@ def parse_candle(asset_id: int, raw: dict) -> tuple:
         raw["low"],
         raw["close"],
         raw["volume"],
+        "yfinance",
     )

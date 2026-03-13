@@ -51,6 +51,7 @@ def ensure_tables(conn):
                 low         NUMERIC,
                 close       NUMERIC,
                 volume      BIGINT,
+                source      VARCHAR(20),
                 PRIMARY KEY (time, asset_id)
             )
         """)
@@ -167,7 +168,7 @@ def get_latest_candle_datetime(conn, exchange: str | None = None):
 
 def upsert_ohlcv(conn, rows: list[tuple]):
     """
-    rows: [(time, asset_id, open, high, low, close, volume), ...]
+    rows: [(time, asset_id, open, high, low, close, volume, source), ...]
     """
     if not rows:
         return
@@ -175,14 +176,15 @@ def upsert_ohlcv(conn, rows: list[tuple]):
         execute_values(
             cur,
             """
-            INSERT INTO ohlcv_min (time, asset_id, open, high, low, close, volume)
+            INSERT INTO ohlcv_min (time, asset_id, open, high, low, close, volume, source)
             VALUES %s
             ON CONFLICT (time, asset_id) DO UPDATE SET
                 open   = EXCLUDED.open,
                 high   = EXCLUDED.high,
                 low    = EXCLUDED.low,
                 close  = EXCLUDED.close,
-                volume = EXCLUDED.volume
+                volume = EXCLUDED.volume,
+                source = EXCLUDED.source
             """,
             rows,
         )

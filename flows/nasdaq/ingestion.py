@@ -220,5 +220,40 @@ def backfill_flow(symbols: str | None = None):
         logger.info(f"백필 완료 — 총 {total_rows}건 적재")
 
 
+@flow(name="eod-sync-nasdaq", log_prints=True)
+def eod_sync_flow(symbols: str | None = None):
+    """
+    장 마감 후 당일 분봉을 Massive로 전체 UPSERT (source='massive'로 교정)
+    - 매일 장 마감 후 1회 실행 (cron: 35 21 * * 1-5 UTC)
+    - yfinance로 수집된 당일 데이터를 Massive 데이터로 덮어씀
+    - symbols: 콤마 구분 티커, None이면 전체
+    """
+    logger = get_run_logger()
+
+    symbol_list = [s.strip() for s in symbols.split(",")] if symbols else None
+    target_assets = (
+        [a for a in US_STOCKS if a["symbol"] in symbol_list]
+        if symbol_list else US_STOCKS
+    )
+    logger.info(f"EOD sync 시작  {len(target_assets)}종목 {symbol_list if symbol_list else '(전체)'}")
+
+    today = datetime.now(UTC).date()
+    n = len(target_assets)
+
+    with get_conn() as conn:
+        ensure_tables(conn)
+        asset_id_map = _get_asset_id_map(conn, target_assets)
+
+    total_rows = 0
+    for i, asset in enumerate(target_assets, 1):
+        symbol = asset["symbol"]
+        asset_id = asset_id_map[symbol]
+        logger.info(f"── [{i}/{n}] {symbol}  {today}")
+        count = backfill_ticker_massive(asset_id, symbol, today, today)
+        total_rows += count
+
+    logger.info(f"EOD sync 완료 ── {n}종목  총 {total_rows:,}건 (source=massive)")
+
+
 if __name__ == "__main__":
     micro_batch_flow()

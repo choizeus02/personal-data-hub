@@ -35,3 +35,12 @@ deployments:
     work_pool:
       name: personal-data-hub-pool
     # 스케줄 없음 — 수동 실행 전용
+
+  - name: eod-sync-nasdaq
+    entrypoint: flows/nasdaq/ingestion.py:eod_sync_flow
+    work_pool:
+      name: personal-data-hub-pool
+    schedules:
+      - cron: "35 21 * * 1-5"
+        timezone: UTC
+        # 21:35 UTC = 4:35 PM EST / 5:35 PM EDT — 항상 장 마감 후

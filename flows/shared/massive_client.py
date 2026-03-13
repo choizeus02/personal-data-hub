@@ -55,7 +55,7 @@ def fetch_minute_bars(ticker: str, start: date, end: date) -> list[dict]:
 
 
 def parse_bar(asset_id: int, raw: dict) -> tuple:
-    """Massive bar → (time, asset_id, open, high, low, close, volume)"""
+    """Massive bar → (time, asset_id, open, high, low, close, volume, source)"""
     ts = datetime.fromtimestamp(raw["t"] / 1000, tz=timezone.utc)
     return (
         ts,
@@ -65,4 +65,5 @@ def parse_bar(asset_id: int, raw: dict) -> tuple:
         float(raw["l"]),
         float(raw["c"]),
         int(raw["v"]),
+        "massive",
     )
