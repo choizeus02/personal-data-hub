@@ -75,14 +75,14 @@ def get_symbols():
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("SELECT symbol, exchange FROM assets ORDER BY exchange, symbol")
             rows = cur.fetchall()
-        result = []
-        for row in rows:
-            result.append({
+        return [
+            {
                 "symbol": row["symbol"],
                 "exchange": row["exchange"],
                 "name": NAMES.get(row["symbol"], row["symbol"]),
-            })
-        return result
+            }
+            for row in rows
+        ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -95,42 +95,42 @@ def get_daily_candles(symbol: str, exchange: str = Query("NASDAQ")):
     conn = None
     try:
         conn = get_connection()
-        is_krx = exchange.upper() == "KRX"
-        tz = "Asia/Seoul" if is_krx else "America/New_York"
+        tz = "Asia/Seoul" if exchange.upper() == "KRX" else "America/New_York"
 
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
                 SELECT
                     to_char(
-                        date_trunc('day', datetime AT TIME ZONE %s),
+                        date_trunc('day', o.time AT TIME ZONE %s),
                         'YYYY-MM-DD'
                     ) AS time,
-                    (array_agg(open ORDER BY datetime))[1]  AS open,
-                    MAX(high)                               AS high,
-                    MIN(low)                                AS low,
-                    (array_agg(close ORDER BY datetime DESC))[1] AS close,
-                    SUM(volume)                             AS volume
-                FROM minute_candles
-                WHERE symbol = %s AND exchange = %s
-                GROUP BY date_trunc('day', datetime AT TIME ZONE %s)
+                    (array_agg(o.open  ORDER BY o.time))[1]        AS open,
+                    MAX(o.high)                                      AS high,
+                    MIN(o.low)                                       AS low,
+                    (array_agg(o.close ORDER BY o.time DESC))[1]    AS close,
+                    SUM(o.volume)                                    AS volume
+                FROM ohlcv_min o
+                JOIN assets a ON a.id = o.asset_id
+                WHERE a.symbol = %s AND a.exchange = %s
+                GROUP BY date_trunc('day', o.time AT TIME ZONE %s)
                 ORDER BY time
                 """,
                 (tz, symbol, exchange.upper(), tz),
             )
             rows = cur.fetchall()
 
-        result = []
-        for row in rows:
-            result.append({
+        return [
+            {
                 "time": row["time"],
                 "open": float(row["open"]),
                 "high": float(row["high"]),
                 "low": float(row["low"]),
                 "close": float(row["close"]),
                 "volume": int(row["volume"]),
-            })
-        return result
+            }
+            for row in rows
+        ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -138,8 +138,7 @@ def get_daily_candles(symbol: str, exchange: str = Query("NASDAQ")):
             conn.close()
 
 
-def _bucket_label(days: int) -> tuple[str, str]:
-    """Return (time_bucket_interval, label) based on day range."""
+def _bucket_interval(days: int) -> tuple[str, str]:
     if days <= 3:
         return "1 minute", "1분봉"
     elif days <= 14:
@@ -164,24 +163,25 @@ def get_minute_candles(
         start_date = date.fromisoformat(start) if start else (today - timedelta(days=7))
 
         days = (end_date - start_date).days
-        bucket_interval, label = _bucket_label(days)
+        bucket_interval, label = _bucket_interval(days)
 
         conn = get_connection()
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
                 SELECT
-                    time_bucket(%s, datetime) AS bucket,
-                    (array_agg(open ORDER BY datetime))[1]       AS open,
-                    MAX(high)                                     AS high,
-                    MIN(low)                                      AS low,
-                    (array_agg(close ORDER BY datetime DESC))[1] AS close,
-                    SUM(volume)                                   AS volume
-                FROM minute_candles
-                WHERE symbol = %s
-                  AND exchange = %s
-                  AND datetime >= %s
-                  AND datetime < %s
+                    time_bucket(%s, o.time)                          AS bucket,
+                    (array_agg(o.open  ORDER BY o.time))[1]         AS open,
+                    MAX(o.high)                                       AS high,
+                    MIN(o.low)                                        AS low,
+                    (array_agg(o.close ORDER BY o.time DESC))[1]     AS close,
+                    SUM(o.volume)                                     AS volume
+                FROM ohlcv_min o
+                JOIN assets a ON a.id = o.asset_id
+                WHERE a.symbol = %s
+                  AND a.exchange = %s
+                  AND o.time >= %s
+                  AND o.time < %s
                 GROUP BY bucket
                 ORDER BY bucket
                 """,
@@ -195,18 +195,20 @@ def get_minute_candles(
             )
             rows = cur.fetchall()
 
-        candles = []
-        for row in rows:
-            candles.append({
-                "time": row["bucket"].isoformat(),
-                "open": float(row["open"]),
-                "high": float(row["high"]),
-                "low": float(row["low"]),
-                "close": float(row["close"]),
-                "volume": int(row["volume"]),
-            })
-
-        return {"label": label, "candles": candles}
+        return {
+            "label": label,
+            "candles": [
+                {
+                    "time": row["bucket"].isoformat(),
+                    "open": float(row["open"]),
+                    "high": float(row["high"]),
+                    "low": float(row["low"]),
+                    "close": float(row["close"]),
+                    "volume": int(row["volume"]),
+                }
+                for row in rows
+            ],
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:

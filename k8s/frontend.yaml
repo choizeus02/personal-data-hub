@@ -32,10 +32,9 @@ metadata:
   name: trading-frontend
   namespace: trading
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: trading-frontend
   ports:
     - port: 80
       targetPort: 80
-      nodePort: 30080
