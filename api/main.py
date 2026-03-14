@@ -1,6 +1,5 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 import psycopg2
 import psycopg2.extras
 import os
@@ -10,28 +9,7 @@ from typing import Optional
 
 load_dotenv()
 
-
-def _migrate():
-    conn = None
-    try:
-        conn = get_connection()
-        with conn.cursor() as cur:
-            cur.execute(
-                "ALTER TABLE assets ADD COLUMN IF NOT EXISTS is_favorite BOOLEAN NOT NULL DEFAULT FALSE"
-            )
-        conn.commit()
-    finally:
-        if conn:
-            conn.close()
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    _migrate()
-    yield
-
-
-app = FastAPI(title="Personal Data Hub API", lifespan=lifespan)
+app = FastAPI(title="Personal Data Hub API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -102,7 +80,7 @@ def get_symbols():
                 "symbol": row["symbol"],
                 "exchange": row["exchange"],
                 "name": NAMES.get(row["symbol"], row["symbol"]),
-                "isFavorite": row["is_favorite"],
+                "isFavorite": row["is_favorite"] == 1,
             }
             for row in rows
         ]
@@ -121,7 +99,7 @@ def toggle_favorite(symbol: str, exchange: str = Query(...)):
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
-                UPDATE assets SET is_favorite = NOT is_favorite
+                UPDATE assets SET is_favorite = 1 - is_favorite
                 WHERE symbol = %s AND exchange = %s
                 RETURNING is_favorite
                 """,
@@ -131,7 +109,7 @@ def toggle_favorite(symbol: str, exchange: str = Query(...)):
         conn.commit()
         if not row:
             raise HTTPException(status_code=404, detail="symbol not found")
-        return {"isFavorite": row["is_favorite"]}
+        return {"isFavorite": row["is_favorite"] == 1}
     except HTTPException:
         raise
     except Exception as e:
