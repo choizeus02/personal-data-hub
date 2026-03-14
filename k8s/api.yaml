@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: trading-api
-          image: ghcr.io/choizeus02/personal-data-hub-api:4017817a06f25a30824be48797affae7cd5b50a4
+          image: ghcr.io/choizeus02/personal-data-hub-api:99c86896ca9c941cc161ca694feee96f4429ab91
           ports:
             - containerPort: 8000
           envFrom:
