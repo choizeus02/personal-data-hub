@@ -323,11 +323,135 @@ const StockChart = forwardRef<StockChartHandle, Props>(function StockChart(
       chart.timeScale().subscribeVisibleTimeRangeChange(() => requestAnimationFrame(drawMarketOverlay))
     }
 
+    // ── Alt+클릭 구간 등락률 ──────────────────────────────────────
+    const rangeCanvas = document.createElement('canvas')
+    Object.assign(rangeCanvas.style, {
+      position: 'absolute', top: '0', left: '0', pointerEvents: 'none', zIndex: '7',
+    })
+    el.appendChild(rangeCanvas)
+
+    const rangeInfo = document.createElement('div')
+    Object.assign(rangeInfo.style, {
+      position: 'absolute', zIndex: '11', display: 'none', pointerEvents: 'none',
+      background: 'rgba(15,15,15,0.95)', border: '1px solid #333',
+      borderRadius: '6px', padding: '8px 12px', fontSize: '12px',
+      color: '#ccc', lineHeight: '1.75', minWidth: '170px',
+      boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
+    })
+    el.appendChild(rangeInfo)
+
+    interface RangeAnchor { candleIdx: number }
+    let rangeAnchor: RangeAnchor | null = null
+    let rangeEnd: number | null = null   // second candle idx
+
+    function drawRangeOverlay() {
+      rangeCanvas.width  = el.clientWidth
+      rangeCanvas.height = el.clientHeight
+      const c = rangeCanvas.getContext('2d')!
+      c.clearRect(0, 0, rangeCanvas.width, rangeCanvas.height)
+      if (rangeAnchor === null) return
+
+      const ax = chart.timeScale().timeToCoordinate(toTime(candles[rangeAnchor.candleIdx].time))
+      if (ax === null) return
+
+      // 앵커 수직선
+      c.strokeStyle = 'rgba(255,200,0,0.7)'
+      c.lineWidth = 1
+      c.setLineDash([4, 4])
+      c.beginPath(); c.moveTo(ax as number, 0); c.lineTo(ax as number, rangeCanvas.height); c.stroke()
+
+      if (rangeEnd === null) return
+
+      const bx = chart.timeScale().timeToCoordinate(toTime(candles[rangeEnd].time))
+      if (bx === null) return
+
+      // 두 번째 수직선
+      c.beginPath(); c.moveTo(bx as number, 0); c.lineTo(bx as number, rangeCanvas.height); c.stroke()
+      c.setLineDash([])
+
+      // 구간 배경
+      const lo = Math.min(ax as number, bx as number), hi = Math.max(ax as number, bx as number)
+      c.fillStyle = 'rgba(255,200,0,0.06)'
+      c.fillRect(lo, 0, hi - lo, rangeCanvas.height)
+    }
+
+    function clearRange() {
+      rangeAnchor = null
+      rangeEnd = null
+      drawRangeOverlay()
+      rangeInfo.style.display = 'none'
+    }
+
+    function showRangeInfo(aIdx: number, bIdx: number) {
+      const fromC = candles[Math.min(aIdx, bIdx)]
+      const toC   = candles[Math.max(aIdx, bIdx)]
+      const diff  = toC.close - fromC.close
+      const pct   = (diff / fromC.close) * 100
+      const count = Math.abs(bIdx - aIdx)
+      const pc    = diff >= 0 ? '#ef5350' : '#26a69a'
+      const fp    = (v: number) => fmtPrice(v, exchange)
+      const fromLabel = fromC.time.slice(0, isIntraday ? 16 : 10)
+      const toLabel   = toC.time.slice(0, isIntraday ? 16 : 10)
+
+      rangeInfo.innerHTML = `
+        <div style="color:#555;font-size:10px;margin-bottom:4px">${fromLabel} → ${toLabel}</div>
+        <div>${fp(fromC.close)} → <b style="color:${pc}">${fp(toC.close)}</b></div>
+        <div style="color:${pc};font-weight:600">${diff >= 0 ? '+' : ''}${fp(diff)}
+          &nbsp;(${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)</div>
+        <div style="color:#555;font-size:10px;margin-top:2px">${count}봉</div>
+      `
+      rangeInfo.style.display = 'block'
+
+      const ax = chart.timeScale().timeToCoordinate(toTime(candles[aIdx].time)) as number
+      const bx = chart.timeScale().timeToCoordinate(toTime(candles[bIdx].time)) as number
+      const midX = (ax + bx) / 2
+      const infoW = 180
+      rangeInfo.style.left = `${Math.max(0, Math.min(midX - infoW / 2, el.clientWidth - infoW))}px`
+      rangeInfo.style.top  = '36px'
+    }
+
+    const onAltClick = (e: MouseEvent) => {
+      if (!e.altKey) return
+      e.preventDefault()
+      const x = e.clientX - el.getBoundingClientRect().left
+      const clickTime = chart.timeScale().coordinateToTime(x)
+      if (clickTime === null) return
+
+      const clickTs = clickTime as number
+      let closest = -1, minDiff = Infinity
+      candles.forEach((c, i) => {
+        const d = Math.abs((toTime(c.time) as number) - clickTs)
+        if (d < minDiff) { minDiff = d; closest = i }
+      })
+      if (closest === -1) return
+
+      if (rangeAnchor === null) {
+        rangeAnchor = { candleIdx: closest }
+        rangeEnd = null
+        drawRangeOverlay()
+        rangeInfo.style.display = 'none'
+      } else if (rangeEnd === null && closest !== rangeAnchor.candleIdx) {
+        rangeEnd = closest
+        drawRangeOverlay()
+        showRangeInfo(rangeAnchor.candleIdx, rangeEnd)
+      } else {
+        clearRange()
+      }
+    }
+
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') clearRange() }
+    el.addEventListener('click', onAltClick)
+    document.addEventListener('keydown', onEsc)
+    chart.timeScale().subscribeVisibleTimeRangeChange(() => {
+      requestAnimationFrame(() => { drawRangeOverlay(); if (rangeEnd !== null && rangeAnchor !== null) showRangeInfo(rangeAnchor.candleIdx, rangeEnd) })
+    })
+
     // ── 리사이즈 ──────────────────────────────────────────────────
     const ro = new ResizeObserver(() => {
       if (!chartRef.current) return
       chart.applyOptions({ width: el.clientWidth, height: el.clientHeight })
       if (isIntraday) requestAnimationFrame(drawMarketOverlay)
+      requestAnimationFrame(drawRangeOverlay)
     })
     ro.observe(el)
 
@@ -335,6 +459,8 @@ const StockChart = forwardRef<StockChartHandle, Props>(function StockChart(
       indicatorCleanups.forEach((fn) => fn())
       document.removeEventListener('keydown', onKeyDown)
       document.removeEventListener('keyup', onKeyUp)
+      document.removeEventListener('keydown', onEsc)
+      el.removeEventListener('click', onAltClick)
       ro.disconnect()
       chart.remove()
       chartRef.current  = null
