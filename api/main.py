@@ -130,7 +130,7 @@ def get_daily_candles(symbol: str, exchange: str = Query("NASDAQ")):
                 GROUP BY date_trunc('day', o.time AT TIME ZONE %s)
                 ORDER BY time
                 """,
-                (tz, symbol, exchange.upper(), tz, tz, tz, tz, tz),
+                (tz, symbol, exchange.upper(), tz, tz, tz, tz, tz, tz),
             )
             rows = cur.fetchall()
 
