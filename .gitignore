@@ -16,5 +16,8 @@ dist/
 # macOS
 .DS_Store
 
+# Node
+node_modules/
+
 # Claude Code
 .claude/
