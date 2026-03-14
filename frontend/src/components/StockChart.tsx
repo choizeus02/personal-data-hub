@@ -188,6 +188,20 @@ const StockChart = forwardRef<StockChartHandle, Props>(function StockChart(
       const cc = chg >= 0 ? '#ef5350' : '#26a69a'
       const fp = (v: number) => fmtPrice(v, exchange)
 
+      // 전일 대비 등락률 (일봉에서만)
+      let prevChgHtml = ''
+      if (!isIntraday) {
+        const idx = candles.findIndex((c) => toTime(c.time) === (param.time as number))
+        if (idx > 0) {
+          const prevClose = candles[idx - 1].close
+          const diff = ohlc.close - prevClose
+          const pct = (diff / prevClose) * 100
+          const pc = diff >= 0 ? '#ef5350' : '#26a69a'
+          prevChgHtml = `<div style="color:${pc};font-size:11px;margin-top:2px;border-top:1px solid #222;padding-top:2px">
+            전일대비 ${diff >= 0 ? '+' : ''}${fp(diff)} <b>(${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)</b></div>`
+        }
+      }
+
       tooltip.innerHTML = `
         <div style="color:#555;font-size:10px;margin-bottom:3px">${timeLabel}</div>
         <div>O <b style="color:${cc}">${fp(ohlc.open)}</b></div>
@@ -196,9 +210,10 @@ const StockChart = forwardRef<StockChartHandle, Props>(function StockChart(
         <div>C <b style="color:${cc}">${fp(ohlc.close)}</b>
           <span style="color:${cc};font-size:10px"> ${chg >= 0 ? '+' : ''}${fp(chg)}</span></div>
         ${vol ? `<div style="color:#444;font-size:10px;margin-top:1px">V ${fmtVol(vol.value)}</div>` : ''}
+        ${prevChgHtml}
       `
 
-      const tw = 160, th = 115
+      const tw = 160, th = 130
       const px = param.point.x, py = param.point.y
       tooltip.style.display = 'block'
       tooltip.style.left = `${px + 16 + tw > el.clientWidth ? px - tw - 16 : px + 16}px`

@@ -113,10 +113,24 @@ def get_daily_candles(symbol: str, exchange: str = Query("NASDAQ")):
                 FROM ohlcv_min o
                 JOIN assets a ON a.id = o.asset_id
                 WHERE a.symbol = %s AND a.exchange = %s
+                  AND (
+                    -- 정규장 시간만 포함 (NASDAQ: 9:30-16:00 ET, KRX: 9:00-15:30 KST)
+                    CASE %s
+                      WHEN 'America/New_York' THEN
+                        (EXTRACT(HOUR FROM o.time AT TIME ZONE %s) * 60
+                         + EXTRACT(MINUTE FROM o.time AT TIME ZONE %s))
+                        BETWEEN 570 AND 959
+                      WHEN 'Asia/Seoul' THEN
+                        (EXTRACT(HOUR FROM o.time AT TIME ZONE %s) * 60
+                         + EXTRACT(MINUTE FROM o.time AT TIME ZONE %s))
+                        BETWEEN 540 AND 929
+                      ELSE TRUE
+                    END
+                  )
                 GROUP BY date_trunc('day', o.time AT TIME ZONE %s)
                 ORDER BY time
                 """,
-                (tz, symbol, exchange.upper(), tz),
+                (tz, symbol, exchange.upper(), tz, tz, tz, tz, tz),
             )
             rows = cur.fetchall()
 
