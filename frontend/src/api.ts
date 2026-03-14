@@ -6,6 +6,12 @@ export async function fetchSymbols(): Promise<Symbol[]> {
   return res.json()
 }
 
+export async function toggleFavorite(symbol: string, exchange: string): Promise<{ isFavorite: boolean }> {
+  const res = await fetch(`/api/symbols/${symbol}/favorite?exchange=${exchange}`, { method: 'PATCH' })
+  if (!res.ok) throw new Error('favorite toggle failed')
+  return res.json()
+}
+
 export async function fetchDaily(symbol: string, exchange: string): Promise<Candle[]> {
   const res = await fetch(`/api/candles/daily/${symbol}?exchange=${exchange}`)
   if (!res.ok) throw new Error('daily fetch failed')

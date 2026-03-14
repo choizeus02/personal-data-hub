@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react'
-import { fetchSymbols } from './api'
+import { fetchSymbols, toggleFavorite } from './api'
 import type { Symbol } from './types'
 import ChartPage from './pages/ChartPage'
 
 export default function App() {
-  const [symbols, setSymbols] = useState<Symbol[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
+  const [symbols, setSymbols]   = useState<Symbol[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [error, setError]       = useState<string | null>(null)
+  const [search, setSearch]     = useState('')
   const [selected, setSelected] = useState<Symbol | null>(null)
 
   useEffect(() => {
@@ -20,18 +20,51 @@ export default function App() {
       .finally(() => setLoading(false))
   }, [])
 
-  const q = search.toLowerCase()
+  async function handleToggleFav(e: React.MouseEvent, s: Symbol) {
+    e.stopPropagation()
+    // Optimistic update
+    setSymbols((prev) =>
+      prev.map((x) =>
+        x.symbol === s.symbol && x.exchange === s.exchange
+          ? { ...x, isFavorite: !x.isFavorite }
+          : x
+      )
+    )
+    try {
+      const { isFavorite } = await toggleFavorite(s.symbol, s.exchange)
+      setSymbols((prev) =>
+        prev.map((x) =>
+          x.symbol === s.symbol && x.exchange === s.exchange ? { ...x, isFavorite } : x
+        )
+      )
+    } catch {
+      // rollback on error
+      setSymbols((prev) =>
+        prev.map((x) =>
+          x.symbol === s.symbol && x.exchange === s.exchange
+            ? { ...x, isFavorite: s.isFavorite }
+            : x
+        )
+      )
+    }
+  }
+
+  const q        = search.toLowerCase()
   const filtered = symbols.filter(
     (s) => s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q)
   )
-  const krx = filtered.filter((s) => s.exchange === 'KRX')
-  const nasdaq = filtered.filter((s) => s.exchange === 'NASDAQ')
+  const favorites = filtered.filter((s) => s.isFavorite)
+  const krx       = filtered.filter((s) => s.exchange === 'KRX')
+  const nasdaq    = filtered.filter((s) => s.exchange === 'NASDAQ')
 
-  function renderGroup(label: string, items: Symbol[]) {
+  function renderGroup(label: string, items: Symbol[], accent?: string) {
     if (!items.length) return null
     return (
       <div key={label}>
-        <div style={{ padding: '8px 14px 4px', fontSize: 11, fontWeight: 600, color: '#555', letterSpacing: '0.8px' }}>
+        <div style={{
+          padding: '8px 14px 4px', fontSize: 11, fontWeight: 600,
+          color: accent ?? '#555', letterSpacing: '0.8px',
+        }}>
           {label}
         </div>
         {items.map((s) => {
@@ -41,14 +74,29 @@ export default function App() {
               key={`${s.exchange}-${s.symbol}`}
               onClick={() => setSelected(s)}
               style={{
-                padding: '7px 14px',
+                padding: '6px 10px 6px 14px',
                 cursor: 'pointer',
                 background: isSelected ? '#1e3a5f' : 'transparent',
                 borderLeft: isSelected ? '2px solid #2563eb' : '2px solid transparent',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               }}
             >
-              <div style={{ fontSize: 13, color: '#ddd', fontWeight: 500 }}>{s.symbol}</div>
-              <div style={{ fontSize: 11, color: '#666' }}>{s.name}</div>
+              <div>
+                <div style={{ fontSize: 13, color: '#ddd', fontWeight: 500 }}>{s.symbol}</div>
+                <div style={{ fontSize: 11, color: '#666' }}>{s.name}</div>
+              </div>
+              <button
+                onClick={(e) => handleToggleFav(e, s)}
+                title={s.isFavorite ? '즐겨찾기 해제' : '즐겨찾기 추가'}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  fontSize: 15, padding: '2px 4px', lineHeight: 1,
+                  color: s.isFavorite ? '#f59e0b' : '#333',
+                  flexShrink: 0,
+                }}
+              >
+                {s.isFavorite ? '★' : '☆'}
+              </button>
             </div>
           )
         })}
@@ -58,12 +106,12 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', fontFamily: 'system-ui, sans-serif' }}>
-      <aside style={{ width: 240, minWidth: 240, background: '#1a1a1a', display: 'flex', flexDirection: 'column', borderRight: '1px solid #2a2a2a' }}>
+      <aside style={{ width: 200, minWidth: 200, background: '#1a1a1a', display: 'flex', flexDirection: 'column', borderRight: '1px solid #2a2a2a' }}>
         <div style={{ padding: '14px 16px', fontSize: 15, fontWeight: 700, color: '#fff', borderBottom: '1px solid #2a2a2a' }}>
           주가 대시보드
         </div>
         <input
-          style={{ margin: 10, padding: '7px 10px', background: '#262626', border: '1px solid #333', borderRadius: 6, color: '#ccc', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+          style={{ margin: 10, padding: '7px 10px', background: '#262626', border: '1px solid #333', borderRadius: 6, color: '#ccc', fontSize: 13, outline: 'none', boxSizing: 'border-box', width: 'calc(100% - 20px)' }}
           placeholder="종목 검색..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -71,8 +119,10 @@ export default function App() {
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {loading && <div style={{ padding: 16, color: '#555', fontSize: 13 }}>불러오는 중...</div>}
           {error && <div style={{ padding: 16, color: '#ef5350', fontSize: 13 }}>{error}</div>}
-          {renderGroup('KRX', krx)}
+          {renderGroup('★ 즐겨찾기', favorites, '#f59e0b')}
+          {favorites.length > 0 && <div style={{ height: 1, background: '#222', margin: '4px 0' }} />}
           {renderGroup('NASDAQ', nasdaq)}
+          {renderGroup('KRX', krx)}
         </div>
       </aside>
 

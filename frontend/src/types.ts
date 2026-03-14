@@ -2,6 +2,7 @@ export interface Symbol {
   symbol: string
   exchange: string
   name: string
+  isFavorite: boolean
 }
 
 export interface Candle {

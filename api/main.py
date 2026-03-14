@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 import psycopg2
 import psycopg2.extras
 import os
@@ -9,7 +10,28 @@ from typing import Optional
 
 load_dotenv()
 
-app = FastAPI(title="Personal Data Hub API")
+
+def _migrate():
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                "ALTER TABLE assets ADD COLUMN IF NOT EXISTS is_favorite BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+        conn.commit()
+    finally:
+        if conn:
+            conn.close()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _migrate()
+    yield
+
+
+app = FastAPI(title="Personal Data Hub API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -73,16 +95,45 @@ def get_symbols():
     try:
         conn = get_connection()
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT symbol, exchange FROM assets ORDER BY exchange, symbol")
+            cur.execute("SELECT symbol, exchange, is_favorite FROM assets ORDER BY exchange, symbol")
             rows = cur.fetchall()
         return [
             {
                 "symbol": row["symbol"],
                 "exchange": row["exchange"],
                 "name": NAMES.get(row["symbol"], row["symbol"]),
+                "isFavorite": row["is_favorite"],
             }
             for row in rows
         ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.patch("/api/symbols/{symbol}/favorite")
+def toggle_favorite(symbol: str, exchange: str = Query(...)):
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                UPDATE assets SET is_favorite = NOT is_favorite
+                WHERE symbol = %s AND exchange = %s
+                RETURNING is_favorite
+                """,
+                (symbol, exchange.upper()),
+            )
+            row = cur.fetchone()
+        conn.commit()
+        if not row:
+            raise HTTPException(status_code=404, detail="symbol not found")
+        return {"isFavorite": row["is_favorite"]}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
