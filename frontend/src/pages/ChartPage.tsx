@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { fetchDaily, fetchMinute } from '../api'
 import type { Symbol, Candle } from '../types'
-import StockChart, { type Overlay } from '../components/StockChart'
+import StockChart from '../components/StockChart'
+import { ALL_INDICATORS } from '../indicators'
 
 type ChartType = 'daily' | 'minute'
 type DailyPeriod = '1M' | '3M' | '1Y' | 'ALL'
@@ -11,17 +12,6 @@ interface Props {
   symbol: Symbol
 }
 
-const OVERLAYS: { key: Overlay; label: string }[] = [
-  { key: 'MA5',      label: 'MA5' },
-  { key: 'MA20',     label: 'MA20' },
-  { key: 'MA60',     label: 'MA60' },
-  { key: 'MA120',    label: 'MA120' },
-  { key: 'BB',       label: '볼린저밴드' },
-  { key: 'GRID',     label: '그물차트' },
-  { key: 'ICHIMOKU', label: '일목균형표' },
-  { key: 'VPROFILE', label: '매물대' },
-]
-
 function formatDate(d: Date) {
   return d.toISOString().slice(0, 10)
 }
@@ -30,7 +20,7 @@ export default function ChartPage({ symbol }: Props) {
   const [chartType, setChartType]       = useState<ChartType>('daily')
   const [dailyPeriod, setDailyPeriod]   = useState<DailyPeriod>('1Y')
   const [minutePeriod, setMinutePeriod] = useState<MinutePeriod>('3D')
-  const [overlays, setOverlays]         = useState<Set<Overlay>>(new Set())
+  const [overlays, setOverlays]         = useState<Set<string>>(new Set())
   const [allCandles, setAllCandles]     = useState<Candle[]>([])
   const [minuteLabel, setMinuteLabel]   = useState('')
   const [loading, setLoading]           = useState(false)
@@ -81,7 +71,7 @@ export default function ChartPage({ symbol }: Props) {
     return allCandles.filter((c) => c.time >= cutoffStr)
   }, [allCandles, chartType, dailyPeriod])
 
-  function toggleOverlay(key: Overlay) {
+  function toggleOverlay(key: string) {
     setOverlays((prev) => {
       const next = new Set(prev)
       next.has(key) ? next.delete(key) : next.add(key)
@@ -151,8 +141,8 @@ export default function ChartPage({ symbol }: Props) {
 
         <div style={{ width: 1, height: 16, background: '#333', margin: '0 4px' }} />
 
-        {/* Overlays */}
-        {OVERLAYS.map(({ key, label: olabel }) => (
+        {/* Overlays — ALL_INDICATORS에서 자동으로 버튼 생성 */}
+        {ALL_INDICATORS.map(({ key, label: olabel }) => (
           <button key={key} style={overlayBtn(overlays.has(key))} onClick={() => toggleOverlay(key)}>
             {olabel}
           </button>
