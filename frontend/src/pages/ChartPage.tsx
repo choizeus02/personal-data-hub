@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { fetchDaily, fetchMinute } from '../api'
 import type { Symbol, Candle } from '../types'
-import StockChart from '../components/StockChart'
+import StockChart, { type Timezone } from '../components/StockChart'
 import { ALL_INDICATORS } from '../indicators'
 
 type ChartType = 'daily' | 'minute'
@@ -21,6 +21,7 @@ export default function ChartPage({ symbol }: Props) {
   const [dailyPeriod, setDailyPeriod]   = useState<DailyPeriod>('1Y')
   const [minutePeriod, setMinutePeriod] = useState<MinutePeriod>('3D')
   const [overlays, setOverlays]         = useState<Set<string>>(new Set())
+  const [timezone, setTimezone]         = useState<Timezone>('Asia/Seoul')
   const [allCandles, setAllCandles]     = useState<Candle[]>([])
   const [minuteLabel, setMinuteLabel]   = useState('')
   const [loading, setLoading]           = useState(false)
@@ -141,6 +142,12 @@ export default function ChartPage({ symbol }: Props) {
 
         <div style={{ width: 1, height: 16, background: '#333', margin: '0 4px' }} />
 
+        {/* Timezone */}
+        <button style={activeBtn(timezone === 'Asia/Seoul')} onClick={() => setTimezone('Asia/Seoul')}>KST</button>
+        <button style={activeBtn(timezone === 'UTC')} onClick={() => setTimezone('UTC')}>UTC</button>
+
+        <div style={{ width: 1, height: 16, background: '#333', margin: '0 4px' }} />
+
         {/* Overlays — ALL_INDICATORS에서 자동으로 버튼 생성 */}
         {ALL_INDICATORS.map(({ key, label: olabel }) => (
           <button key={key} style={overlayBtn(overlays.has(key))} onClick={() => toggleOverlay(key)}>
@@ -167,7 +174,13 @@ export default function ChartPage({ symbol }: Props) {
           </div>
         )}
         {!loading && !error && candles.length > 0 && (
-          <StockChart candles={candles} overlays={overlays} />
+          <StockChart
+            candles={candles}
+            overlays={overlays}
+            timezone={timezone}
+            exchange={symbol.exchange}
+            isIntraday={chartType === 'minute'}
+          />
         )}
       </div>
     </div>
