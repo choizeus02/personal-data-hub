@@ -4,6 +4,7 @@ metadata:
   name: trading-ingress
   namespace: trading
 spec:
+  ingressClassName: nginx
   rules:
     - http:
         paths:
