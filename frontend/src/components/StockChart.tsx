@@ -1,5 +1,5 @@
 import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react'
-import { createChart, ColorType, CrosshairMode } from 'lightweight-charts'
+import { createChart, ColorType, CrosshairMode, TickMarkType } from 'lightweight-charts'
 import type { IChartApi } from 'lightweight-charts'
 
 export interface StockChartHandle {
@@ -33,6 +33,29 @@ function makeTimeFormatter(tz: Timezone, isIntraday: boolean) {
     return new Intl.DateTimeFormat('ko-KR', {
       timeZone: zone, year: '2-digit', month: '2-digit', day: '2-digit',
     }).format(d)
+  }
+}
+
+// ── x축 틱 마크 포매터 (timezone 반영) ───────────────────────────
+function makeTickMarkFormatter(tz: Timezone, isIntraday: boolean) {
+  const zone = tz === 'Asia/Seoul' ? 'Asia/Seoul' : 'UTC'
+  return (unixSec: number, tickMarkType: TickMarkType) => {
+    const d = new Date(unixSec * 1000)
+    switch (tickMarkType) {
+      case TickMarkType.Year:
+        return new Intl.DateTimeFormat('ko-KR', { timeZone: zone, year: 'numeric' }).format(d)
+      case TickMarkType.Month:
+        return new Intl.DateTimeFormat('ko-KR', { timeZone: zone, month: 'short' }).format(d)
+      case TickMarkType.DayOfMonth:
+        return new Intl.DateTimeFormat('ko-KR', { timeZone: zone, month: '2-digit', day: '2-digit' }).format(d)
+      default: // Time
+        return new Intl.DateTimeFormat('ko-KR', {
+          timeZone: zone,
+          ...(isIntraday
+            ? { hour: '2-digit', minute: '2-digit', hour12: false }
+            : { month: '2-digit', day: '2-digit' }),
+        }).format(d)
+    }
   }
 }
 
@@ -80,6 +103,7 @@ const StockChart = forwardRef<StockChartHandle, Props>(function StockChart(
     if (!chartRef.current) return
     chartRef.current.applyOptions({
       localization: { timeFormatter: makeTimeFormatter(timezone, isIntraday) },
+      timeScale: { tickMarkFormatter: makeTickMarkFormatter(timezone, isIntraday) },
     })
     drawMktRef.current?.()
   }, [timezone, isIntraday])
@@ -96,7 +120,10 @@ const StockChart = forwardRef<StockChartHandle, Props>(function StockChart(
       grid: { vertLines: { color: '#1e1e1e' }, horzLines: { color: '#1e1e1e' } },
       crosshair: { mode: CrosshairMode.Normal },
       rightPriceScale: { borderColor: '#2a2a2a' },
-      timeScale: { borderColor: '#2a2a2a', timeVisible: true, secondsVisible: false },
+      timeScale: {
+        borderColor: '#2a2a2a', timeVisible: true, secondsVisible: false,
+        tickMarkFormatter: makeTickMarkFormatter(timezone, isIntraday),
+      },
       localization: { timeFormatter: makeTimeFormatter(timezone, isIntraday) },
     })
     chartRef.current = chart
