@@ -1,6 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react'
 import { createChart, ColorType, CrosshairMode } from 'lightweight-charts'
 import type { IChartApi } from 'lightweight-charts'
+
+export interface StockChartHandle {
+  resetZoom: () => void
+}
 import type { Candle } from '../types'
 import { ALL_INDICATORS } from '../indicators'
 import { toTime, detectInterval } from '../indicators/utils'
@@ -56,9 +60,15 @@ function fmtVol(v: number) {
   return v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : `${v}`
 }
 
-export default function StockChart({ candles, overlays, timezone, exchange, isIntraday }: Props) {
+const StockChart = forwardRef<StockChartHandle, Props>(function StockChart(
+  { candles, overlays, timezone, exchange, isIntraday }, ref
+) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef     = useRef<IChartApi | null>(null)
+
+  useImperativeHandle(ref, () => ({
+    resetZoom: () => chartRef.current?.timeScale().fitContent(),
+  }))
   const drawMktRef   = useRef<(() => void) | null>(null)
   const tzRef        = useRef(timezone)
 
@@ -290,5 +300,16 @@ export default function StockChart({ candles, overlays, timezone, exchange, isIn
     }
   }, [candles, overlays, exchange, isIntraday]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── 더블클릭 전체보기 ─────────────────────────────────────────
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const onDbl = () => chartRef.current?.timeScale().fitContent()
+    el.addEventListener('dblclick', onDbl)
+    return () => el.removeEventListener('dblclick', onDbl)
+  }, [])
+
   return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
-}
+})
+
+export default StockChart

@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { fetchDaily, fetchMinute } from '../api'
 import type { Symbol, Candle } from '../types'
-import StockChart, { type Timezone } from '../components/StockChart'
+import StockChart, { type Timezone, type StockChartHandle } from '../components/StockChart'
 import { ALL_INDICATORS } from '../indicators'
 
 type ChartType = 'daily' | 'minute'
@@ -17,6 +17,7 @@ function formatDate(d: Date) {
 }
 
 export default function ChartPage({ symbol }: Props) {
+  const chartRef = useRef<StockChartHandle>(null)
   const [chartType, setChartType]       = useState<ChartType>('daily')
   const [dailyPeriod, setDailyPeriod]   = useState<DailyPeriod>('1Y')
   const [minutePeriod, setMinutePeriod] = useState<MinutePeriod>('3D')
@@ -148,6 +149,11 @@ export default function ChartPage({ symbol }: Props) {
 
         <div style={{ width: 1, height: 16, background: '#333', margin: '0 4px' }} />
 
+        {/* 전체보기 */}
+        <button style={activeBtn(false)} onClick={() => chartRef.current?.resetZoom()}>전체보기</button>
+
+        <div style={{ width: 1, height: 16, background: '#333', margin: '0 4px' }} />
+
         {/* Overlays — ALL_INDICATORS에서 자동으로 버튼 생성 */}
         {ALL_INDICATORS.map(({ key, label: olabel }) => (
           <button key={key} style={overlayBtn(overlays.has(key))} onClick={() => toggleOverlay(key)}>
@@ -175,6 +181,7 @@ export default function ChartPage({ symbol }: Props) {
         )}
         {!loading && !error && candles.length > 0 && (
           <StockChart
+            ref={chartRef}
             candles={candles}
             overlays={overlays}
             timezone={timezone}
