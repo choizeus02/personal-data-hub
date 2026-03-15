@@ -69,18 +69,24 @@ git push
 ## DB 스키마 (`trading_db`)
 
 ```sql
-assets    (id, symbol, asset_type, exchange, currency)
+assets    (id, symbol, asset_type, exchange, currency, is_favorite SMALLINT DEFAULT 0)
+           -- is_favorite: 0=일반, 1=즐겨찾기
 ohlcv_min (time TIMESTAMPTZ, asset_id → assets.id, open, high, low, close, volume BIGINT, source VARCHAR)
            -- TimescaleDB hypertable, PK: (time, asset_id)
 kis_token (id, access_token, expires_at)  -- KIS 토큰 캐시
 ```
+
+> 스키마 변경은 수동 DDL로 관리 (자동 마이그레이션 없음):
+> ```sql
+> ALTER TABLE assets ADD COLUMN IF NOT EXISTS is_favorite SMALLINT NOT NULL DEFAULT 0;
+> ```
 
 ---
 
 ## 프론트엔드 구조 (`frontend/src/`)
 
 ```
-App.tsx              — 사이드바 (종목 목록 + 검색)
+App.tsx              — 사이드바: 즐겨찾기/NASDAQ/KRX 그룹, 검색, 별 버튼 토글
 pages/ChartPage.tsx  — 차트 타입/기간/오버레이 상태 관리, 데이터 fetch
 components/
   StockChart.tsx     — LWC 차트 렌더링, ALL_INDICATORS 순회로 지표 적용
@@ -148,11 +154,41 @@ docker buildx build --platform linux/amd64 -t <registry>/<image>:<tag> --push .
 
 ---
 
+## API 엔드포인트 (`api/main.py`)
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| GET | `/api/symbols` | 전체 종목 목록 (symbol, exchange, name, isFavorite) |
+| PATCH | `/api/symbols/{symbol}/favorite?exchange=` | 즐겨찾기 토글 (0↔1), isFavorite 반환 |
+| GET | `/api/candles/daily/{symbol}?exchange=` | 일봉 (정규장 시간만 집계: NASDAQ 9:30–16:00 ET, KRX 9:00–15:30 KST) |
+| GET | `/api/candles/minute/{symbol}?exchange=&start=&end=` | 분봉 |
+
+- 일봉은 `ohlcv_min`을 정규장 시간으로 필터링 후 당일 집계 (프리/애프터마켓 제외)
+- DB 스키마 변경은 수동 DDL — API에 자동 마이그레이션 없음
+
+---
+
+## 차트 UX 기능 (StockChart.tsx)
+
+| 기능 | 동작 |
+|------|------|
+| KST/UTC 전환 | x축 tickMarkFormatter + 크로스헤어 timeFormatter 동시 업데이트 (차트 재생성 없음) |
+| 호버 툴팁 | OHLCV + 일봉에서 전일 대비 등락률(±금액, ±%) 표시 |
+| Shift+드래그 | 범위 선택 후 해당 구간 확대 |
+| 더블클릭 | 전체보기 (fitContent) |
+| 전체보기 버튼 | 컨트롤 바에서 클릭으로 fitContent |
+| Alt+클릭 (1회) | 앵커 설정 (노란 수직선) |
+| Alt+클릭 (2회) | 구간 등락률 오버레이 (가격차/등락률/봉수) |
+| Alt+클릭 (3회) / ESC | 구간 초기화 |
+| 장외 시간 dimming | 분봉에서 정규장 외 시간대 어둡게 처리 |
+
+---
+
 ## 개발 시 주의사항
 
 - KIS API Rate Limit: `sleep(0.07)` 필수 (초당 ~14건)
 - Massive.com 무료 플랜: `sleep(13.0)` per call (5 calls/min), 50종목 backfill ≈ 11분
 - Prefect `@task`에 psycopg2 conn 전달 시 `cache_policy=NO_CACHE` 필수
-- `ensure_tables()` 는 `CREATE TABLE IF NOT EXISTS` — 기존 테이블 스키마 변경 시 수동 DROP 필요
-- GitHub Actions가 worker.yaml 태그 자동 커밋 → 로컬 push 전 `git pull --rebase` 필요
+- DB 스키마 변경은 수동 DDL로 관리 (API에 자동 마이그레이션 없음)
+- GitHub Actions가 k8s/*.yaml 태그 자동 커밋 → 로컬 push 전 `git pull --rebase` 필요
 - `MASSIVE_API_KEY`는 K8s Secret (`personal-data-hub-secret`)에 추가해야 Worker Pod에서 사용 가능
