@@ -54,6 +54,7 @@ NAMES = {
     "FAST": "Fastenal", "VRSK": "Verisk", "REGN": "Regeneron",
     "VRTX": "Vertex", "CPRT": "Copart", "FTNT": "Fortinet",
     "ON": "ON Semi", "ODFL": "Old Dominion",
+    "ES=F": "E-mini S&P 500", "NQ=F": "E-mini NASDAQ-100",
 }
 
 

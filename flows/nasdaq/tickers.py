@@ -64,3 +64,10 @@ US_STOCKS: list[AssetMeta] = [
 
 # yfinance용 심볼 리스트
 TICKERS = [a["symbol"] for a in US_STOCKS]
+
+
+# CME 선물 (연속물, yfinance 심볼)
+US_FUTURES: list[AssetMeta] = [
+    {"symbol": "ES=F", "asset_type": "FUTURE", "exchange": "CME", "currency": "USD"},  # E-mini S&P 500
+    {"symbol": "NQ=F", "asset_type": "FUTURE", "exchange": "CME", "currency": "USD"},  # E-mini NASDAQ-100
+]

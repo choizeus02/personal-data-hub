@@ -56,6 +56,7 @@ export default function App() {
   const favorites = filtered.filter((s) => s.isFavorite)
   const krx       = filtered.filter((s) => s.exchange === 'KRX')
   const nasdaq    = filtered.filter((s) => s.exchange === 'NASDAQ')
+  const futures   = filtered.filter((s) => s.exchange === 'CME')
 
   function renderGroup(label: string, items: Symbol[], accent?: string) {
     if (!items.length) return null
@@ -121,6 +122,7 @@ export default function App() {
           {error && <div style={{ padding: 16, color: '#ef5350', fontSize: 13 }}>{error}</div>}
           {renderGroup('★ 즐겨찾기', favorites, '#f59e0b')}
           {favorites.length > 0 && <div style={{ height: 1, background: '#222', margin: '4px 0' }} />}
+          {renderGroup('FUTURES', futures, '#a78bfa')}
           {renderGroup('NASDAQ', nasdaq)}
           {renderGroup('KRX', krx)}
         </div>

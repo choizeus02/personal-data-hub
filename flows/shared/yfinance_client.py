@@ -32,6 +32,35 @@ def is_market_open() -> bool:
     return open_minutes <= total_minutes <= close_minutes
 
 
+def is_futures_open() -> bool:
+    """CME 선물 운영 시간 여부 (E-mini S&P500/NASDAQ100 기준)
+    - 운영: 일요일 18:00 ET ~ 금요일 17:00 ET
+    - 매일 유지보수 휴장: 17:00~18:00 ET
+    - 토요일 전일 휴장
+    """
+    now_et = datetime.now(ET)
+    weekday = now_et.weekday()  # 0=월 ... 5=토, 6=일
+    total_minutes = now_et.hour * 60 + now_et.minute
+
+    # 토요일: 전일 휴장
+    if weekday == 5:
+        return False
+
+    # 매일 17:00~18:00 유지보수 휴장
+    if 17 * 60 <= total_minutes < 18 * 60:
+        return False
+
+    # 금요일 17:00 이후: 다음 일요일 18:00까지 휴장
+    if weekday == 4 and total_minutes >= 17 * 60:
+        return False
+
+    # 일요일 18:00 이전: 아직 미개장
+    if weekday == 6 and total_minutes < 18 * 60:
+        return False
+
+    return True
+
+
 def _df_to_candles(df) -> list[dict]:
     """DataFrame → candle dict 리스트 변환 (MultiIndex 컬럼 자동 처리)"""
     # yfinance >= 0.2.31은 단일 종목도 MultiIndex 반환 → 필드명 레벨만 유지

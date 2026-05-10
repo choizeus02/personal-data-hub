@@ -11,13 +11,14 @@ from prefect.cache_policies import NO_CACHE
 from shared.database import get_conn, ensure_tables, get_or_create_asset, upsert_ohlcv, get_existing_days, get_trading_days, get_days_to_fetch
 from shared.yfinance_client import (
     is_market_open,
+    is_futures_open,
     fetch_latest_candle,
     fetch_candles_for_range,
     parse_candle,
     YFINANCE_1M_MAX_DAYS,
 )
 from shared.massive_client import iter_minute_bars, parse_bar, MASSIVE_MAX_HISTORY_DAYS
-from nasdaq.tickers import US_STOCKS
+from nasdaq.tickers import US_STOCKS, US_FUTURES
 
 UTC = timezone.utc
 BATCH_SLEEP = 0.2  # 종목 간 딜레이 (Yahoo 레이트 리밋 완화)
@@ -230,6 +231,67 @@ def eod_sync_flow(symbols: str | None = None):
         total_rows += count
 
     logger.info(f"EOD sync 완료 ── {n}종목  총 {total_rows:,}건 (source=massive)")
+
+
+@flow(name="micro-batch-futures", log_prints=True)
+def micro_batch_futures_flow():
+    logger = get_run_logger()
+
+    if not is_futures_open():
+        logger.info("CME 선물 운영 시간 외. 스킵.")
+        return
+
+    logger.info(f"선물 수집 시작, 종목 수: {len(US_FUTURES)}")
+
+    with get_conn() as conn:
+        ensure_tables(conn)
+        asset_id_map = _get_asset_id_map(conn, US_FUTURES)
+
+    success, fail = 0, 0
+    for asset in US_FUTURES:
+        symbol = asset["symbol"]
+        asset_id = asset_id_map[symbol]
+        result = fetch_and_upsert(asset_id, symbol)
+        if result:
+            success += 1
+        else:
+            fail += 1
+        time.sleep(BATCH_SLEEP)
+
+    logger.info(f"완료 — 성공: {success}, 실패: {fail}")
+
+
+@flow(name="backfill-futures", log_prints=True)
+def backfill_futures_flow():
+    """CME 선물 1m 분봉 backfill (yfinance, 최대 7일)"""
+    logger = get_run_logger()
+
+    today = datetime.now(UTC).date()
+    start = today - timedelta(days=YFINANCE_1M_MAX_DAYS - 1)
+    end = today
+
+    with get_conn() as conn:
+        ensure_tables(conn)
+        asset_id_map = _get_asset_id_map(conn, US_FUTURES)
+
+    total_rows = 0
+    for asset in US_FUTURES:
+        symbol = asset["symbol"]
+        asset_id = asset_id_map[symbol]
+        start_dt = datetime(start.year, start.month, start.day, tzinfo=UTC)
+        end_dt = datetime(end.year, end.month, end.day, tzinfo=UTC) + timedelta(days=1)
+        candles = fetch_candles_for_range(symbol, start_dt, end_dt)
+        if not candles:
+            logger.warning(f"[{symbol}] 데이터 없음")
+            continue
+        rows = [parse_candle(asset_id, c) for c in candles]
+        with get_conn() as conn:
+            upsert_ohlcv(conn, rows)
+        logger.info(f"[{symbol}] {start}~{end} 저장: {len(rows)}건")
+        total_rows += len(rows)
+        time.sleep(BATCH_SLEEP)
+
+    logger.info(f"백필 완료 — 총 {total_rows}건 적재")
 
 
 if __name__ == "__main__":
