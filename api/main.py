@@ -83,10 +83,11 @@ def get_symbols():
     try:
         conn = get_connection()
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT symbol, exchange, is_favorite FROM assets ORDER BY exchange, symbol")
+            cur.execute("SELECT id, symbol, exchange, is_favorite FROM assets ORDER BY exchange, symbol")
             rows = cur.fetchall()
         return [
             {
+                "id": row["id"],
                 "symbol": row["symbol"],
                 "exchange": row["exchange"],
                 "name": NAMES.get(row["symbol"], row["symbol"]),

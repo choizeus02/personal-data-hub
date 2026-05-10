@@ -25,13 +25,11 @@ export default function SectorEditor({ sector, symbols, onSave, onDelete, onClos
   const totalWeight = stocks.reduce((s, st) => s + st.weight, 0)
 
   function addStock(sym: Symbol) {
-    const asset_id = (sym as any).asset_id
-    if (!asset_id) return  // will be fixed in Task 8 when Symbol.id is added
     if (stocks.some((s) => s.symbol === sym.symbol && s.exchange === sym.exchange)) return
     const defaultWeight = stocks.length === 0 ? 100 : stocks[0].weight
     setStocks((prev) => [
       ...prev,
-      { asset_id, weight: defaultWeight, symbol: sym.symbol, exchange: sym.exchange },
+      { asset_id: sym.id, weight: defaultWeight, symbol: sym.symbol, exchange: sym.exchange },
     ])
     setSearch('')
   }
