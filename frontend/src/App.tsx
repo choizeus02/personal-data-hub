@@ -4,6 +4,7 @@ import type { Symbol, Sector, Selected } from './types'
 import ChartPage from './pages/ChartPage'
 import SectorPage from './pages/SectorPage'
 import SectorEditor from './components/SectorEditor'
+import HeatmapPage from './pages/HeatmapPage'
 
 export default function App() {
   const [symbols, setSymbols]   = useState<Symbol[]>([])
@@ -19,7 +20,6 @@ export default function App() {
       .then(([symbolData, sectorData]) => {
         setSymbols(symbolData)
         setSectors(sectorData)
-        if (symbolData.length > 0) setSelected({ type: 'symbol', data: symbolData[0] })
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
@@ -52,6 +52,16 @@ export default function App() {
         )
       )
     }
+  }
+
+  function handleSelectFromHeatmap(symbol: string, exchange: string) {
+    const sym = symbols.find((s) => s.symbol === symbol && s.exchange === exchange)
+    if (sym) setSelected({ type: 'symbol', data: sym })
+  }
+
+  function handleSelectSectorFromHeatmap(sectorId: number) {
+    const sector = sectors.find((s) => s.id === sectorId)
+    if (sector) setSelected({ type: 'sector', data: sector })
   }
 
   const q        = search.toLowerCase()
@@ -184,7 +194,12 @@ export default function App() {
         ) : selected?.type === 'symbol' ? (
           <ChartPage symbol={selected.data} />
         ) : (
-          <div style={{ padding: 40, color: '#444', fontSize: 15 }}>좌측에서 종목을 선택하세요.</div>
+          <HeatmapPage
+            symbols={symbols}
+            sectors={sectors}
+            onSelectSymbol={handleSelectFromHeatmap}
+            onSelectSector={handleSelectSectorFromHeatmap}
+          />
         )}
       </main>
       {editingSector !== null && (
