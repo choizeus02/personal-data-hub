@@ -14,6 +14,7 @@ export default function App() {
   const [selected, setSelected]           = useState<Selected | null>(null)
   const [sectors, setSectors]             = useState<Sector[]>([])
   const [editingSector, setEditingSector] = useState<Sector | 'new' | null>(null)
+  const [sidebarOpen, setSidebarOpen]     = useState(true)
 
   useEffect(() => {
     Promise.all([fetchSymbols(), fetchSectors()])
@@ -166,10 +167,19 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', fontFamily: 'system-ui, sans-serif' }}>
-      <aside style={{ width: 200, minWidth: 200, background: '#1a1a1a', display: 'flex', flexDirection: 'column', borderRight: '1px solid #2a2a2a' }}>
+      <aside style={{
+        width: sidebarOpen ? 200 : 0,
+        minWidth: sidebarOpen ? 200 : 0,
+        background: '#1a1a1a',
+        display: 'flex',
+        flexDirection: 'column',
+        borderRight: sidebarOpen ? '1px solid #2a2a2a' : 'none',
+        overflow: 'hidden',
+        transition: 'width 0.2s ease, min-width 0.2s ease',
+      }}>
         <div
           onClick={() => setSelected(null)}
-          style={{ padding: '14px 16px', fontSize: 15, fontWeight: 700, color: '#fff', borderBottom: '1px solid #2a2a2a', cursor: 'pointer', userSelect: 'none' }}
+          style={{ padding: '14px 16px', fontSize: 15, fontWeight: 700, color: '#fff', borderBottom: '1px solid #2a2a2a', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
         >
           주가 대시보드
         </div>
@@ -191,7 +201,19 @@ export default function App() {
         </div>
       </aside>
 
-      <main style={{ flex: 1, overflow: 'hidden', background: '#0f0f0f' }}>
+      <main style={{ flex: 1, overflow: 'hidden', background: '#0f0f0f', position: 'relative' }}>
+        <button
+          onClick={() => setSidebarOpen((v) => !v)}
+          style={{
+            position: 'absolute', top: 10, left: 10, zIndex: 100,
+            background: '#262626', border: '1px solid #333', borderRadius: 4,
+            color: '#888', cursor: 'pointer', fontSize: 12, padding: '3px 7px',
+            lineHeight: 1,
+          }}
+          title={sidebarOpen ? '사이드바 접기' : '사이드바 펼치기'}
+        >
+          {sidebarOpen ? '◀' : '▶'}
+        </button>
         {selected?.type === 'sector' ? (
           <SectorPage
             sector={selected.data}
