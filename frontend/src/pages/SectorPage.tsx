@@ -17,6 +17,8 @@ const PERIOD_DAYS: Record<Period, number> = {
   '1D': 1, '3D': 3, '1W': 7, '1M': 30, '3M': 90,
 }
 
+const EMPTY_OVERLAYS = new Set<string>()
+
 export default function SectorPage({ sector }: Props) {
   const chartRef = useRef<StockChartHandle>(null)
   const [period, setPeriod]     = useState<Period>('1W')
@@ -66,7 +68,7 @@ export default function SectorPage({ sector }: Props) {
     whiteSpace: 'nowrap',
   })
 
-  const todayChange = candles.length >= 2
+  const periodChange = candles.length >= 2
     ? ((candles[candles.length - 1].close - candles[0].close) / candles[0].close * 100).toFixed(2)
     : null
 
@@ -76,9 +78,9 @@ export default function SectorPage({ sector }: Props) {
       <div style={{ padding: '10px 20px', borderBottom: '1px solid #1e1e1e', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
         <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{sector.name}</span>
         <span style={{ fontSize: 11, color: '#555' }}>{sector.stocks.length}개 종목</span>
-        {todayChange !== null && (
-          <span style={{ fontSize: 13, color: Number(todayChange) >= 0 ? '#26a69a' : '#ef5350', marginLeft: 4 }}>
-            {Number(todayChange) >= 0 ? '+' : ''}{todayChange}%
+        {periodChange !== null && (
+          <span style={{ fontSize: 13, color: Number(periodChange) >= 0 ? '#26a69a' : '#ef5350', marginLeft: 4 }}>
+            {Number(periodChange) >= 0 ? '+' : ''}{periodChange}%
           </span>
         )}
         {label && <span style={{ fontSize: 12, color: '#2563eb', marginLeft: 'auto' }}>{label}</span>}
@@ -117,7 +119,7 @@ export default function SectorPage({ sector }: Props) {
           <StockChart
             ref={chartRef}
             candles={candles}
-            overlays={new Set()}
+            overlays={EMPTY_OVERLAYS}
             timezone={timezone}
             exchange="SECTOR"
             isIntraday={false}
