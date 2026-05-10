@@ -4,6 +4,7 @@ metadata:
   name: trading-api
   namespace: trading
 spec:
+  revisionHistoryLimit: 3
   replicas: 1
   selector:
     matchLabels:
