@@ -372,3 +372,101 @@ def update_sector_stocks(sector_id: int, stocks: list[SectorStockItem]):
     finally:
         if conn:
             conn.close()
+
+
+@app.get("/api/sectors/{sector_id}/candles")
+def get_sector_candles(
+    sector_id: int,
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+):
+    conn = None
+    try:
+        today = date.today()
+        end_date   = date.fromisoformat(end)   if end   else today
+        start_date = date.fromisoformat(start) if start else (today - timedelta(days=7))
+
+        days = (end_date - start_date).days
+        bucket_interval, label = _bucket_interval(days)
+
+        conn = get_connection()
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT id FROM sectors WHERE id = %s", (sector_id,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="sector not found")
+
+            cur.execute(
+                """
+                WITH norm_weights AS (
+                    SELECT
+                        ss.asset_id,
+                        ss.weight / SUM(ss.weight) OVER () AS w
+                    FROM sector_stocks ss
+                    WHERE ss.sector_id = %(sector_id)s
+                ),
+                base_prices AS (
+                    SELECT DISTINCT ON (o.asset_id)
+                        o.asset_id,
+                        o.close AS base_close
+                    FROM ohlcv_min o
+                    JOIN norm_weights nw ON o.asset_id = nw.asset_id
+                    WHERE o.time >= %(start)s AND o.time < %(end)s
+                    ORDER BY o.asset_id, o.time ASC
+                ),
+                bucketed AS (
+                    SELECT
+                        time_bucket(%(interval)s::interval, o.time)         AS bucket,
+                        o.asset_id,
+                        (array_agg(o.open  ORDER BY o.time ASC))[1]         AS open,
+                        MAX(o.high)                                          AS high,
+                        MIN(o.low)                                           AS low,
+                        (array_agg(o.close ORDER BY o.time DESC))[1]        AS close,
+                        SUM(o.volume)                                        AS volume
+                    FROM ohlcv_min o
+                    JOIN norm_weights nw ON o.asset_id = nw.asset_id
+                    WHERE o.time >= %(start)s AND o.time < %(end)s
+                    GROUP BY bucket, o.asset_id
+                )
+                SELECT
+                    bucket AS time,
+                    SUM((b.open  / bp.base_close) * 100 * nw.w) AS open,
+                    SUM((b.high  / bp.base_close) * 100 * nw.w) AS high,
+                    SUM((b.low   / bp.base_close) * 100 * nw.w) AS low,
+                    SUM((b.close / bp.base_close) * 100 * nw.w) AS close,
+                    SUM(b.volume * nw.w)::BIGINT                 AS volume
+                FROM bucketed b
+                JOIN base_prices bp ON b.asset_id = bp.asset_id
+                JOIN norm_weights nw ON b.asset_id = nw.asset_id
+                GROUP BY bucket
+                ORDER BY bucket
+                """,
+                {
+                    "sector_id": sector_id,
+                    "start": start_date.isoformat(),
+                    "end": (end_date + timedelta(days=1)).isoformat(),
+                    "interval": bucket_interval,
+                },
+            )
+            rows = cur.fetchall()
+
+        return {
+            "label": label,
+            "candles": [
+                {
+                    "time": row["time"].isoformat(),
+                    "open":   float(row["open"]),
+                    "high":   float(row["high"]),
+                    "low":    float(row["low"]),
+                    "close":  float(row["close"]),
+                    "volume": int(row["volume"]),
+                }
+                for row in rows
+            ],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
