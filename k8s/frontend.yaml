@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: trading-frontend
-          image: ghcr.io/choizeus02/personal-data-hub-frontend:6df43852aa168d597863eae94da14be13b9592ae
+          image: ghcr.io/choizeus02/personal-data-hub-frontend:57eed2b3474e37e104d4c2c7422d37bc8367a13d
           ports:
             - containerPort: 80
           resources:
