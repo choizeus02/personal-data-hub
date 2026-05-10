@@ -11,24 +11,27 @@ interface Props {
 }
 
 export default function SectorEditor({ sector, symbols, onSave, onDelete, onClose }: Props) {
-  const [name, setName]     = useState(sector?.name ?? '')
-  const [stocks, setStocks] = useState<SectorStock[]>(sector?.stocks ?? [])
-  const [search, setSearch] = useState('')
-  const [saving, setSaving] = useState(false)
+  const [name, setName]         = useState(sector?.name ?? '')
+  const [stocks, setStocks]     = useState<SectorStock[]>(sector?.stocks ?? [])
+  const [search, setSearch]     = useState('')
+  const [saving, setSaving]     = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   useEffect(() => {
     setName(sector?.name ?? '')
     setStocks(sector?.stocks ?? [])
-  }, [sector])
+  }, [sector?.id])
 
   const totalWeight = stocks.reduce((s, st) => s + st.weight, 0)
 
   function addStock(sym: Symbol) {
+    const asset_id = (sym as any).asset_id
+    if (!asset_id) return  // will be fixed in Task 8 when Symbol.id is added
     if (stocks.some((s) => s.symbol === sym.symbol && s.exchange === sym.exchange)) return
     const defaultWeight = stocks.length === 0 ? 100 : stocks[0].weight
     setStocks((prev) => [
       ...prev,
-      { asset_id: (sym as any).asset_id ?? 0, weight: defaultWeight, symbol: sym.symbol, exchange: sym.exchange },
+      { asset_id, weight: defaultWeight, symbol: sym.symbol, exchange: sym.exchange },
     ])
     setSearch('')
   }
@@ -46,6 +49,7 @@ export default function SectorEditor({ sector, symbols, onSave, onDelete, onClos
   async function handleSave() {
     if (!name.trim() || stocks.length === 0) return
     setSaving(true)
+    setSaveError(null)
     try {
       let saved: Sector
       if (sector) {
@@ -57,6 +61,8 @@ export default function SectorEditor({ sector, symbols, onSave, onDelete, onClos
         saved = { ...saved, stocks }
       }
       onSave(saved)
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : '저장 실패')
     } finally {
       setSaving(false)
     }
@@ -65,8 +71,12 @@ export default function SectorEditor({ sector, symbols, onSave, onDelete, onClos
   async function handleDelete() {
     if (!sector) return
     if (!confirm(`"${sector.name}" 섹터를 삭제할까요?`)) return
-    await deleteSector(sector.id)
-    onDelete(sector.id)
+    try {
+      await deleteSector(sector.id)
+      onDelete(sector.id)
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : '삭제 실패')
+    }
   }
 
   const filtered = symbols.filter(
@@ -150,6 +160,13 @@ export default function SectorEditor({ sector, symbols, onSave, onDelete, onClos
                 >×</button>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* 에러 메시지 */}
+        {saveError && (
+          <div style={{ color: '#ef5350', fontSize: 12, marginBottom: 8, textAlign: 'right' }}>
+            {saveError}
           </div>
         )}
 
