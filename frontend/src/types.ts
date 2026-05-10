@@ -18,3 +18,20 @@ export interface MinuteResponse {
   label: string
   candles: Candle[]
 }
+
+export interface SectorStock {
+  asset_id: number
+  weight: number
+  symbol: string
+  exchange: string
+}
+
+export interface Sector {
+  id: number
+  name: string
+  stocks: SectorStock[]
+}
+
+export type Selected =
+  | { type: 'symbol'; data: Symbol }
+  | { type: 'sector'; data: Sector }
