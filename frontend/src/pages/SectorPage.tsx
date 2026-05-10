@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
-import { fetchSectorCandles } from '../api'
-import type { Sector, Candle } from '../types'
+import { fetchSectorCandles, fetchDaily } from '../api'
+import type { Sector, SectorStock, Candle } from '../types'
 import StockChart, { type Timezone, type StockChartHandle } from '../components/StockChart'
 
 type Period = '1D' | '3D' | '1W' | '1M' | '3M'
 
 interface Props {
   sector: Sector
+  onSelectSymbol?: (symbol: string, exchange: string) => void
 }
 
 function formatDate(d: Date) {
@@ -19,7 +20,86 @@ const PERIOD_DAYS: Record<Period, number> = {
 
 const EMPTY_OVERLAYS = new Set<string>()
 
-export default function SectorPage({ sector }: Props) {
+function StockCard({
+  stock,
+  period,
+  timezone,
+  onSelect,
+}: {
+  stock: SectorStock
+  period: Period
+  timezone: Timezone
+  onSelect: () => void
+}) {
+  const [candles, setCandles] = useState<Candle[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    fetchDaily(stock.symbol, stock.exchange)
+      .then((data) => {
+        if (!cancelled) {
+          const cutoff = new Date()
+          cutoff.setDate(cutoff.getDate() - PERIOD_DAYS[period])
+          setCandles(data.filter((c) => new Date(c.time) >= cutoff))
+        }
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [stock.symbol, stock.exchange, period])
+
+  const todayChange =
+    candles.length >= 2
+      ? ((candles[candles.length - 1].close - candles[candles.length - 2].close) /
+          candles[candles.length - 2].close) *
+        100
+      : null
+
+  return (
+    <div
+      onClick={onSelect}
+      style={{
+        border: '1px solid #2a2a2a',
+        borderRadius: 6,
+        overflow: 'hidden',
+        cursor: 'pointer',
+        background: '#141414',
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#3a3a5a')}
+      onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#2a2a2a')}
+    >
+      <div
+        style={{
+          padding: '6px 10px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderBottom: '1px solid #1e1e1e',
+        }}
+      >
+        <span style={{ fontSize: 13, fontWeight: 700, color: '#ddd' }}>{stock.symbol}</span>
+        {todayChange !== null && (
+          <span style={{ fontSize: 12, color: todayChange >= 0 ? '#26a69a' : '#ef5350' }}>
+            {todayChange >= 0 ? '+' : ''}
+            {todayChange.toFixed(2)}%
+          </span>
+        )}
+      </div>
+      <div style={{ height: 160 }}>
+        {candles.length > 0 && (
+          <StockChart
+            candles={candles}
+            overlays={EMPTY_OVERLAYS}
+            timezone={timezone}
+            exchange={stock.exchange}
+            isIntraday={false}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+export default function SectorPage({ sector, onSelectSymbol }: Props) {
   const chartRef = useRef<StockChartHandle>(null)
   const [period, setPeriod]     = useState<Period>('1W')
   const [timezone, setTimezone] = useState<Timezone>('Asia/Seoul')
@@ -74,57 +154,79 @@ export default function SectorPage({ sector }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-      {/* Header */}
-      <div style={{ padding: '10px 20px', borderBottom: '1px solid #1e1e1e', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-        <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{sector.name}</span>
-        <span style={{ fontSize: 11, color: '#555' }}>{sector.stocks.length}개 종목</span>
-        {periodChange !== null && (
-          <span style={{ fontSize: 13, color: Number(periodChange) >= 0 ? '#26a69a' : '#ef5350', marginLeft: 4 }}>
-            {Number(periodChange) >= 0 ? '+' : ''}{periodChange}%
-          </span>
-        )}
-        {label && <span style={{ fontSize: 12, color: '#2563eb', marginLeft: 'auto' }}>{label}</span>}
+      {/* ── Top: composite chart (fixed height) ─────────────────── */}
+      <div style={{ height: 360, flexShrink: 0, display: 'flex', flexDirection: 'column', borderBottom: '2px solid #222' }}>
+        {/* Header */}
+        <div style={{ padding: '10px 20px', borderBottom: '1px solid #1e1e1e', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{sector.name}</span>
+          <span style={{ fontSize: 11, color: '#555' }}>{sector.stocks.length}개 종목</span>
+          {periodChange !== null && (
+            <span style={{ fontSize: 13, color: Number(periodChange) >= 0 ? '#26a69a' : '#ef5350', marginLeft: 4 }}>
+              {Number(periodChange) >= 0 ? '+' : ''}{periodChange}%
+            </span>
+          )}
+          {label && <span style={{ fontSize: 12, color: '#2563eb', marginLeft: 'auto' }}>{label}</span>}
+        </div>
+
+        {/* Controls */}
+        <div style={{ padding: '8px 20px', borderBottom: '1px solid #1e1e1e', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {(['1D', '3D', '1W', '1M', '3M'] as Period[]).map((p) => (
+            <button key={p} style={activeBtn(period === p)} onClick={() => setPeriod(p)}>{p}</button>
+          ))}
+          <div style={{ width: 1, height: 16, background: '#333', margin: '0 4px' }} />
+          <button style={activeBtn(timezone === 'Asia/Seoul')} onClick={() => setTimezone('Asia/Seoul')}>KST</button>
+          <button style={activeBtn(timezone === 'UTC')} onClick={() => setTimezone('UTC')}>UTC</button>
+          <div style={{ width: 1, height: 16, background: '#333', margin: '0 4px' }} />
+          <button style={activeBtn(false)} onClick={() => chartRef.current?.resetZoom()}>전체보기</button>
+        </div>
+
+        {/* Composite chart */}
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+          {loading && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', fontSize: 14, zIndex: 10 }}>
+              로딩 중...
+            </div>
+          )}
+          {error && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef5350', fontSize: 14, zIndex: 10 }}>
+              오류: {error}
+            </div>
+          )}
+          {!loading && !error && candles.length === 0 && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: 14, zIndex: 10 }}>
+              데이터 없음
+            </div>
+          )}
+          {!loading && !error && candles.length > 0 && (
+            <StockChart
+              ref={chartRef}
+              candles={candles}
+              overlays={EMPTY_OVERLAYS}
+              timezone={timezone}
+              exchange="SECTOR"
+              isIntraday={false}
+            />
+          )}
+        </div>
       </div>
 
-      {/* Controls */}
-      <div style={{ padding: '8px 20px', borderBottom: '1px solid #1e1e1e', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-        {(['1D', '3D', '1W', '1M', '3M'] as Period[]).map((p) => (
-          <button key={p} style={activeBtn(period === p)} onClick={() => setPeriod(p)}>{p}</button>
-        ))}
-        <div style={{ width: 1, height: 16, background: '#333', margin: '0 4px' }} />
-        <button style={activeBtn(timezone === 'Asia/Seoul')} onClick={() => setTimezone('Asia/Seoul')}>KST</button>
-        <button style={activeBtn(timezone === 'UTC')} onClick={() => setTimezone('UTC')}>UTC</button>
-        <div style={{ width: 1, height: 16, background: '#333', margin: '0 4px' }} />
-        <button style={activeBtn(false)} onClick={() => chartRef.current?.resetZoom()}>전체보기</button>
-      </div>
-
-      {/* Chart */}
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        {loading && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', fontSize: 14, zIndex: 10 }}>
-            로딩 중...
-          </div>
-        )}
-        {error && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef5350', fontSize: 14, zIndex: 10 }}>
-            오류: {error}
-          </div>
-        )}
-        {!loading && !error && candles.length === 0 && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: 14, zIndex: 10 }}>
-            데이터 없음
-          </div>
-        )}
-        {!loading && !error && candles.length > 0 && (
-          <StockChart
-            ref={chartRef}
-            candles={candles}
-            overlays={EMPTY_OVERLAYS}
-            timezone={timezone}
-            exchange="SECTOR"
-            isIntraday={false}
-          />
-        )}
+      {/* ── Bottom: individual stock grid ────────────────────────── */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: 12, background: '#0f0f0f' }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+          gap: 10,
+        }}>
+          {sector.stocks.map((stock) => (
+            <StockCard
+              key={stock.asset_id}
+              stock={stock}
+              period={period}
+              timezone={timezone}
+              onSelect={() => onSelectSymbol?.(stock.symbol, stock.exchange)}
+            />
+          ))}
+        </div>
       </div>
     </div>
   )

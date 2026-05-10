@@ -190,7 +190,7 @@ export default function App() {
 
       <main style={{ flex: 1, overflow: 'hidden', background: '#0f0f0f' }}>
         {selected?.type === 'sector' ? (
-          <SectorPage sector={selected.data} />
+          <SectorPage sector={selected.data} onSelectSymbol={handleSelectFromHeatmap} />
         ) : selected?.type === 'symbol' ? (
           <ChartPage symbol={selected.data} />
         ) : (
