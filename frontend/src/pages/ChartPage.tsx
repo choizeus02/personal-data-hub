@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { fetchDaily, fetchMinute } from '../api'
+import { fetchDaily, fetchWeekly, fetchMinute } from '../api'
 import type { Symbol, Candle } from '../types'
 import StockChart, { type Timezone, type StockChartHandle } from '../components/StockChart'
 import { ALL_INDICATORS } from '../indicators'
 
-type ChartType = 'daily' | 'minute'
+type ChartType = 'daily' | 'weekly' | 'minute'
 type DailyPeriod = '1M' | '3M' | '1Y' | 'ALL'
 type MinutePeriod = '1D' | '3D' | '1W'
 
@@ -43,6 +43,9 @@ export default function ChartPage({ symbol }: Props) {
         if (chartType === 'daily') {
           const data = await fetchDaily(symbol.symbol, symbol.exchange)
           if (!cancelled) setAllCandles(data)
+        } else if (chartType === 'weekly') {
+          const data = await fetchWeekly(symbol.symbol, symbol.exchange)
+          if (!cancelled) setAllCandles(data)
         } else {
           const end = formatDate(today)
           const start = formatDate(new Date(today.getTime() - (periodDays[minutePeriod] - 1) * 86400000))
@@ -63,9 +66,9 @@ export default function ChartPage({ symbol }: Props) {
     return () => { cancelled = true }
   }, [symbol.symbol, symbol.exchange, chartType, minutePeriod])
 
-  // Client-side filter for daily period
+  // Client-side filter for daily/weekly period
   const candles = useMemo(() => {
-    if (chartType !== 'daily' || dailyPeriod === 'ALL') return allCandles
+    if ((chartType !== 'daily' && chartType !== 'weekly') || dailyPeriod === 'ALL') return allCandles
     const days: Record<DailyPeriod, number> = { '1M': 30, '3M': 90, '1Y': 365, 'ALL': 0 }
     const cutoff = new Date()
     cutoff.setDate(cutoff.getDate() - days[dailyPeriod])
@@ -81,7 +84,7 @@ export default function ChartPage({ symbol }: Props) {
     })
   }
 
-  const label = chartType === 'daily' ? '일봉' : minuteLabel
+  const label = chartType === 'daily' ? '일봉' : chartType === 'weekly' ? '주봉' : minuteLabel
 
   // Styles
   const activeBtn = (active: boolean): React.CSSProperties => ({
@@ -125,13 +128,14 @@ export default function ChartPage({ symbol }: Props) {
       {/* Controls */}
       <div style={{ padding: '8px 20px', borderBottom: '1px solid #1e1e1e', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
         {/* Chart type */}
-        <button style={activeBtn(chartType === 'daily')} onClick={() => setChartType('daily')}>일봉</button>
+        <button style={activeBtn(chartType === 'daily')}  onClick={() => setChartType('daily')}>일봉</button>
+        <button style={activeBtn(chartType === 'weekly')} onClick={() => setChartType('weekly')}>주봉</button>
         <button style={activeBtn(chartType === 'minute')} onClick={() => setChartType('minute')}>분봉</button>
 
         <div style={{ width: 1, height: 16, background: '#333', margin: '0 4px' }} />
 
         {/* Period */}
-        {chartType === 'daily' ? (
+        {chartType === 'daily' || chartType === 'weekly' ? (
           (['1M', '3M', '1Y', 'ALL'] as DailyPeriod[]).map((p) => (
             <button key={p} style={activeBtn(dailyPeriod === p)} onClick={() => setDailyPeriod(p)}>{p}</button>
           ))

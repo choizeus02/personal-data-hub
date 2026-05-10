@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { fetchSectorCandles, fetchDaily } from '../api'
+import { fetchSectorCandles, fetchDaily, fetchWeekly } from '../api'
 import type { Sector, SectorStock, Candle } from '../types'
 import StockChart, { type Timezone, type StockChartHandle } from '../components/StockChart'
 
-type ChartType   = 'daily' | 'minute'
+type ChartType   = 'daily' | 'weekly' | 'minute'
 type DailyPeriod  = '1M' | '3M' | '1Y' | 'ALL'
 type MinutePeriod = '1D' | '3D' | '1W'
 
@@ -23,11 +23,13 @@ const EMPTY_OVERLAYS = new Set<string>()
 
 function StockCard({
   stock,
+  cardType,
   period,
   timezone,
   onSelect,
 }: {
   stock: SectorStock
+  cardType: 'daily' | 'weekly'
   period: DailyPeriod
   timezone: Timezone
   onSelect: () => void
@@ -36,7 +38,8 @@ function StockCard({
 
   useEffect(() => {
     let cancelled = false
-    fetchDaily(stock.symbol, stock.exchange)
+    const fetcher = cardType === 'weekly' ? fetchWeekly : fetchDaily
+    fetcher(stock.symbol, stock.exchange)
       .then((data) => {
         if (!cancelled) {
           if (period === 'ALL') {
@@ -51,7 +54,7 @@ function StockCard({
       })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [stock.symbol, stock.exchange, period])
+  }, [stock.symbol, stock.exchange, cardType, period])
 
   const periodChange =
     candles.length >= 2
@@ -93,6 +96,7 @@ export default function SectorPage({ sector, onSelectSymbol }: Props) {
   const [chartType, setChartType]       = useState<ChartType>('daily')
   const [dailyPeriod, setDailyPeriod]   = useState<DailyPeriod>('1Y')
   const [minutePeriod, setMinutePeriod] = useState<MinutePeriod>('3D')
+  const [cardType, setCardType]         = useState<'daily' | 'weekly'>('daily')
   const [cardPeriod, setCardPeriod]     = useState<DailyPeriod>('3M')
   const [timezone, setTimezone]         = useState<Timezone>('Asia/Seoul')
   const [candles, setCandles]           = useState<Candle[]>([])
@@ -109,11 +113,11 @@ export default function SectorPage({ sector, onSelectSymbol }: Props) {
     const today = new Date()
     const end   = formatDate(today)
     let start: string
-    if (chartType === 'daily') {
-      const days = DAILY_PERIOD_DAYS[dailyPeriod]
+    if (chartType === 'minute') {
+      const days = MINUTE_PERIOD_DAYS[minutePeriod]
       start = formatDate(new Date(today.getTime() - (days - 1) * 86400000))
     } else {
-      const days = MINUTE_PERIOD_DAYS[minutePeriod]
+      const days = DAILY_PERIOD_DAYS[dailyPeriod]
       start = formatDate(new Date(today.getTime() - (days - 1) * 86400000))
     }
 
@@ -171,12 +175,13 @@ export default function SectorPage({ sector, onSelectSymbol }: Props) {
         <div style={{ padding: '8px 20px', borderBottom: '1px solid #1e1e1e', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
           {/* Chart type */}
           <button style={activeBtn(chartType === 'daily')}  onClick={() => setChartType('daily')}>일봉</button>
+          <button style={activeBtn(chartType === 'weekly')} onClick={() => setChartType('weekly')}>주봉</button>
           <button style={activeBtn(chartType === 'minute')} onClick={() => setChartType('minute')}>분봉</button>
 
           <div style={{ width: 1, height: 16, background: '#333', margin: '0 4px' }} />
 
           {/* Period */}
-          {chartType === 'daily' ? (
+          {chartType !== 'minute' ? (
             (['1M', '3M', '1Y', 'ALL'] as DailyPeriod[]).map((p) => (
               <button key={p} style={activeBtn(dailyPeriod === p)} onClick={() => setDailyPeriod(p)}>{p}</button>
             ))
@@ -185,14 +190,6 @@ export default function SectorPage({ sector, onSelectSymbol }: Props) {
               <button key={p} style={activeBtn(minutePeriod === p)} onClick={() => setMinutePeriod(p)}>{p}</button>
             ))
           )}
-
-          <div style={{ width: 1, height: 16, background: '#333', margin: '0 4px' }} />
-
-          {/* Card period */}
-          <span style={{ fontSize: 10, color: '#555', whiteSpace: 'nowrap' }}>개별</span>
-          {(['1M', '3M', '1Y', 'ALL'] as DailyPeriod[]).map((p) => (
-            <button key={p} style={activeBtn(cardPeriod === p)} onClick={() => setCardPeriod(p)}>{p}</button>
-          ))}
 
           <div style={{ width: 1, height: 16, background: '#333', margin: '0 4px' }} />
 
@@ -234,6 +231,17 @@ export default function SectorPage({ sector, onSelectSymbol }: Props) {
         </div>
       </div>
 
+      {/* ── Card controls ────────────────────────── */}
+      <div style={{ padding: '6px 20px', borderBottom: '1px solid #1e1e1e', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, background: '#111' }}>
+        <span style={{ fontSize: 10, color: '#555', whiteSpace: 'nowrap' }}>개별</span>
+        <button style={activeBtn(cardType === 'daily')}  onClick={() => setCardType('daily')}>일봉</button>
+        <button style={activeBtn(cardType === 'weekly')} onClick={() => setCardType('weekly')}>주봉</button>
+        <div style={{ width: 1, height: 14, background: '#333', margin: '0 2px' }} />
+        {(['1M', '3M', '1Y', 'ALL'] as DailyPeriod[]).map((p) => (
+          <button key={p} style={activeBtn(cardPeriod === p)} onClick={() => setCardPeriod(p)}>{p}</button>
+        ))}
+      </div>
+
       {/* ── Bottom: individual stock grid ────────────────────────── */}
       <div style={{ flex: 1, overflowY: 'auto', padding: 12, background: '#0f0f0f' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
@@ -241,6 +249,7 @@ export default function SectorPage({ sector, onSelectSymbol }: Props) {
             <StockCard
               key={stock.asset_id}
               stock={stock}
+              cardType={cardType}
               period={cardPeriod}
               timezone={timezone}
               onSelect={() => onSelectSymbol?.(stock.symbol, stock.exchange)}

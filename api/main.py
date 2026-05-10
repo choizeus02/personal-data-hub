@@ -192,6 +192,67 @@ def get_daily_candles(symbol: str, exchange: str = Query("NASDAQ")):
             conn.close()
 
 
+@app.get("/api/candles/weekly/{symbol}")
+def get_weekly_candles(symbol: str, exchange: str = Query("NASDAQ")):
+    conn = None
+    try:
+        conn = get_connection()
+        tz = "Asia/Seoul" if exchange.upper() == "KRX" else "America/New_York"
+
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT
+                    to_char(
+                        date_trunc('week', o.time AT TIME ZONE %s),
+                        'YYYY-MM-DD'
+                    ) AS time,
+                    (array_agg(o.open  ORDER BY o.time))[1]        AS open,
+                    MAX(o.high)                                      AS high,
+                    MIN(o.low)                                       AS low,
+                    (array_agg(o.close ORDER BY o.time DESC))[1]    AS close,
+                    SUM(o.volume)                                    AS volume
+                FROM ohlcv_min o
+                JOIN assets a ON a.id = o.asset_id
+                WHERE a.symbol = %s AND a.exchange = %s
+                  AND (
+                    CASE %s
+                      WHEN 'America/New_York' THEN
+                        (EXTRACT(HOUR FROM o.time AT TIME ZONE %s) * 60
+                         + EXTRACT(MINUTE FROM o.time AT TIME ZONE %s))
+                        BETWEEN 570 AND 959
+                      WHEN 'Asia/Seoul' THEN
+                        (EXTRACT(HOUR FROM o.time AT TIME ZONE %s) * 60
+                         + EXTRACT(MINUTE FROM o.time AT TIME ZONE %s))
+                        BETWEEN 540 AND 929
+                      ELSE TRUE
+                    END
+                  )
+                GROUP BY date_trunc('week', o.time AT TIME ZONE %s)
+                ORDER BY time
+                """,
+                (tz, symbol, exchange.upper(), tz, tz, tz, tz, tz, tz),
+            )
+            rows = cur.fetchall()
+
+        return [
+            {
+                "time": row["time"],
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+                "volume": int(row["volume"]),
+            }
+            for row in rows
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+
 def _bucket_interval(days: int) -> tuple[str, str]:
     if days <= 3:
         return "1 minute", "1분봉"
@@ -459,6 +520,8 @@ def get_sector_candles(
         days = (end_date - start_date).days
         if chart_type == 'daily':
             bucket_interval, label = '1 day', '일봉'
+        elif chart_type == 'weekly':
+            bucket_interval, label = '1 week', '주봉'
         else:
             bucket_interval, label = _bucket_interval(days)
 

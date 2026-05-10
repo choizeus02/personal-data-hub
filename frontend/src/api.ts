@@ -18,6 +18,12 @@ export async function fetchDaily(symbol: string, exchange: string): Promise<Cand
   return res.json()
 }
 
+export async function fetchWeekly(symbol: string, exchange: string): Promise<Candle[]> {
+  const res = await fetch(`/trading/api/candles/weekly/${symbol}?exchange=${exchange}`)
+  if (!res.ok) throw new Error('weekly fetch failed')
+  return res.json()
+}
+
 export async function fetchMinute(
   symbol: string,
   exchange: string,
@@ -66,7 +72,7 @@ export async function fetchSectorCandles(
   id: number,
   start: string,
   end: string,
-  chartType: 'daily' | 'minute' = 'minute'
+  chartType: 'daily' | 'weekly' | 'minute' = 'minute'
 ): Promise<MinuteResponse> {
   const res = await fetch(`/trading/api/sectors/${id}/candles?start=${start}&end=${end}&chart_type=${chartType}`)
   if (!res.ok) throw new Error('sector candles fetch failed')
