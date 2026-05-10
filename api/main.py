@@ -6,7 +6,7 @@ import os
 from dotenv import load_dotenv
 from datetime import date, timedelta
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 load_dotenv()
 
@@ -60,11 +60,11 @@ NAMES = {
 
 
 class SectorCreate(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1)
 
 class SectorStockItem(BaseModel):
     asset_id: int
-    weight: float
+    weight: float = Field(..., gt=0)
 
 
 def get_connection():
@@ -275,35 +275,31 @@ def get_sectors():
     try:
         conn = get_connection()
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT id, name FROM sectors ORDER BY id")
-            sectors = cur.fetchall()
-            result = []
-            for s in sectors:
-                cur.execute(
-                    """
-                    SELECT ss.asset_id, ss.weight, a.symbol, a.exchange
-                    FROM sector_stocks ss
-                    JOIN assets a ON a.id = ss.asset_id
-                    WHERE ss.sector_id = %s
-                    ORDER BY ss.asset_id
-                    """,
-                    (s["id"],),
-                )
-                stocks = cur.fetchall()
-                result.append({
-                    "id": s["id"],
-                    "name": s["name"],
-                    "stocks": [
-                        {
-                            "asset_id": st["asset_id"],
-                            "weight": float(st["weight"]),
-                            "symbol": st["symbol"],
-                            "exchange": st["exchange"],
-                        }
-                        for st in stocks
-                    ],
+            cur.execute(
+                """
+                SELECT s.id, s.name,
+                       ss.asset_id, ss.weight, a.symbol, a.exchange
+                FROM sectors s
+                LEFT JOIN sector_stocks ss ON ss.sector_id = s.id
+                LEFT JOIN assets a ON a.id = ss.asset_id
+                ORDER BY s.id, ss.asset_id
+                """
+            )
+            rows = cur.fetchall()
+
+        sectors: dict = {}
+        for row in rows:
+            sid = row["id"]
+            if sid not in sectors:
+                sectors[sid] = {"id": sid, "name": row["name"], "stocks": []}
+            if row["asset_id"] is not None:
+                sectors[sid]["stocks"].append({
+                    "asset_id": row["asset_id"],
+                    "weight": float(row["weight"]),
+                    "symbol": row["symbol"],
+                    "exchange": row["exchange"],
                 })
-        return result
+        return list(sectors.values())
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -370,6 +366,8 @@ def update_sector_stocks(sector_id: int, stocks: list[SectorStockItem]):
     except HTTPException:
         raise
     except Exception as e:
+        if conn:
+            conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:
