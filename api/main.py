@@ -429,11 +429,11 @@ def get_sector_candles(
                 )
                 SELECT
                     bucket AS time,
-                    SUM((b.open  / bp.base_close) * 100 * nw.w) AS open,
-                    SUM((b.high  / bp.base_close) * 100 * nw.w) AS high,
-                    SUM((b.low   / bp.base_close) * 100 * nw.w) AS low,
-                    SUM((b.close / bp.base_close) * 100 * nw.w) AS close,
-                    SUM(b.volume * nw.w)::BIGINT                 AS volume
+                    SUM((b.open  / bp.base_close) * 100 * nw.w) / SUM(nw.w) AS open,
+                    SUM((b.high  / bp.base_close) * 100 * nw.w) / SUM(nw.w) AS high,
+                    SUM((b.low   / bp.base_close) * 100 * nw.w) / SUM(nw.w) AS low,
+                    SUM((b.close / bp.base_close) * 100 * nw.w) / SUM(nw.w) AS close,
+                    SUM(b.volume * nw.w)::BIGINT                              AS volume
                 FROM bucketed b
                 JOIN base_prices bp ON b.asset_id = bp.asset_id
                 JOIN norm_weights nw ON b.asset_id = nw.asset_id
