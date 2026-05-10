@@ -11,8 +11,9 @@ jobs:
   build-worker:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
       packages: write
+    outputs:
+      built: ${{ steps.changed.outputs.worker }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,26 +53,12 @@ jobs:
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:${{ github.sha }}
 
-      - name: Update image tag in worker.yaml
-        if: steps.changed.outputs.worker == 'true'
-        run: |
-          sed -i "s|image: ghcr.io/.*personal-data-hub:.*|image: ghcr.io/${{ github.repository }}:${{ github.sha }}|" k8s/worker.yaml
-
-      - name: Commit updated manifest
-        if: steps.changed.outputs.worker == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add k8s/worker.yaml
-          git diff --staged --quiet || git commit -m "ci: update worker image tag to ${{ github.sha }}"
-          git pull --rebase origin main
-          git push
-
   build-api:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
       packages: write
+    outputs:
+      built: ${{ steps.changed.outputs.api }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -108,26 +95,12 @@ jobs:
             ghcr.io/${{ github.repository }}-api:latest
             ghcr.io/${{ github.repository }}-api:${{ github.sha }}
 
-      - name: Update image tag in api.yaml
-        if: steps.changed.outputs.api == 'true'
-        run: |
-          sed -i "s|image: ghcr.io/.*personal-data-hub-api:.*|image: ghcr.io/${{ github.repository }}-api:${{ github.sha }}|" k8s/api.yaml
-
-      - name: Commit updated manifest
-        if: steps.changed.outputs.api == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add k8s/api.yaml
-          git diff --staged --quiet || git commit -m "ci: update api image tag to ${{ github.sha }}"
-          git pull --rebase origin main
-          git push
-
   build-frontend:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
       packages: write
+    outputs:
+      built: ${{ steps.changed.outputs.frontend }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -164,17 +137,38 @@ jobs:
             ghcr.io/${{ github.repository }}-frontend:latest
             ghcr.io/${{ github.repository }}-frontend:${{ github.sha }}
 
-      - name: Update image tag in frontend.yaml
-        if: steps.changed.outputs.frontend == 'true'
+  update-manifests:
+    needs: [build-worker, build-api, build-frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: always() && (needs.build-worker.outputs.built == 'true' || needs.build-api.outputs.built == 'true' || needs.build-frontend.outputs.built == 'true')
+    steps:
+      - name: Checkout latest main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Update worker.yaml
+        if: needs.build-worker.outputs.built == 'true'
+        run: |
+          sed -i "s|image: ghcr.io/.*personal-data-hub:.*|image: ghcr.io/${{ github.repository }}:${{ github.sha }}|" k8s/worker.yaml
+
+      - name: Update api.yaml
+        if: needs.build-api.outputs.built == 'true'
+        run: |
+          sed -i "s|image: ghcr.io/.*personal-data-hub-api:.*|image: ghcr.io/${{ github.repository }}-api:${{ github.sha }}|" k8s/api.yaml
+
+      - name: Update frontend.yaml
+        if: needs.build-frontend.outputs.built == 'true'
         run: |
           sed -i "s|image: ghcr.io/.*personal-data-hub-frontend:.*|image: ghcr.io/${{ github.repository }}-frontend:${{ github.sha }}|" k8s/frontend.yaml
 
-      - name: Commit updated manifest
-        if: steps.changed.outputs.frontend == 'true'
+      - name: Commit updated manifests
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add k8s/frontend.yaml
-          git diff --staged --quiet || git commit -m "ci: update frontend image tag to ${{ github.sha }}"
+          git add k8s/worker.yaml k8s/api.yaml k8s/frontend.yaml
+          git diff --staged --quiet || git commit -m "ci: update image tags to ${{ github.sha }}"
           git pull --rebase origin main
           git push
