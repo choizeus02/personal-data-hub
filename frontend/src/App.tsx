@@ -167,7 +167,10 @@ export default function App() {
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', fontFamily: 'system-ui, sans-serif' }}>
       <aside style={{ width: 200, minWidth: 200, background: '#1a1a1a', display: 'flex', flexDirection: 'column', borderRight: '1px solid #2a2a2a' }}>
-        <div style={{ padding: '14px 16px', fontSize: 15, fontWeight: 700, color: '#fff', borderBottom: '1px solid #2a2a2a' }}>
+        <div
+          onClick={() => setSelected(null)}
+          style={{ padding: '14px 16px', fontSize: 15, fontWeight: 700, color: '#fff', borderBottom: '1px solid #2a2a2a', cursor: 'pointer', userSelect: 'none' }}
+        >
           주가 대시보드
         </div>
         <input

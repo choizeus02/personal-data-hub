@@ -65,9 +65,10 @@ export async function updateSectorStocks(
 export async function fetchSectorCandles(
   id: number,
   start: string,
-  end: string
+  end: string,
+  chartType: 'daily' | 'minute' = 'minute'
 ): Promise<MinuteResponse> {
-  const res = await fetch(`/trading/api/sectors/${id}/candles?start=${start}&end=${end}`)
+  const res = await fetch(`/trading/api/sectors/${id}/candles?start=${start}&end=${end}&chart_type=${chartType}`)
   if (!res.ok) throw new Error('sector candles fetch failed')
   return res.json()
 }

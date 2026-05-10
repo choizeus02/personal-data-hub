@@ -200,7 +200,7 @@ def _bucket_interval(days: int) -> tuple[str, str]:
     elif days <= 60:
         return "30 minutes", "30분봉"
     else:
-        return "2 hours", "2시간봉"
+        return "1 day", "일봉"
 
 
 @app.get("/api/candles/minute/{symbol}")
@@ -448,6 +448,7 @@ def get_sector_candles(
     sector_id: int,
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
+    chart_type: str = Query('minute'),
 ):
     conn = None
     try:
@@ -456,7 +457,10 @@ def get_sector_candles(
         start_date = date.fromisoformat(start) if start else (today - timedelta(days=7))
 
         days = (end_date - start_date).days
-        bucket_interval, label = _bucket_interval(days)
+        if chart_type == 'daily':
+            bucket_interval, label = '1 day', '일봉'
+        else:
+            bucket_interval, label = _bucket_interval(days)
 
         conn = get_connection()
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:

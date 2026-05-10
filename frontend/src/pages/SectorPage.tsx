@@ -3,7 +3,9 @@ import { fetchSectorCandles, fetchDaily } from '../api'
 import type { Sector, SectorStock, Candle } from '../types'
 import StockChart, { type Timezone, type StockChartHandle } from '../components/StockChart'
 
-type Period = '1D' | '3D' | '1W' | '1M' | '3M'
+type ChartType   = 'daily' | 'minute'
+type DailyPeriod  = '1M' | '3M' | '1Y' | 'ALL'
+type MinutePeriod = '1D' | '3D' | '1W'
 
 interface Props {
   sector: Sector
@@ -14,9 +16,8 @@ function formatDate(d: Date) {
   return d.toISOString().slice(0, 10)
 }
 
-const PERIOD_DAYS: Record<Period, number> = {
-  '1D': 1, '3D': 3, '1W': 7, '1M': 30, '3M': 90,
-}
+const DAILY_PERIOD_DAYS: Record<DailyPeriod, number>   = { '1M': 30,  '3M': 90, '1Y': 365, 'ALL': 720 }
+const MINUTE_PERIOD_DAYS: Record<MinutePeriod, number> = { '1D': 1, '3D': 3, '1W': 7 }
 
 const EMPTY_OVERLAYS = new Set<string>()
 
@@ -27,7 +28,7 @@ function StockCard({
   onSelect,
 }: {
   stock: SectorStock
-  period: Period
+  period: DailyPeriod
   timezone: Timezone
   onSelect: () => void
 }) {
@@ -38,49 +39,37 @@ function StockCard({
     fetchDaily(stock.symbol, stock.exchange)
       .then((data) => {
         if (!cancelled) {
-          const cutoff = new Date()
-          cutoff.setDate(cutoff.getDate() - PERIOD_DAYS[period])
-          setCandles(data.filter((c) => new Date(c.time) >= cutoff))
+          if (period === 'ALL') {
+            setCandles(data)
+          } else {
+            const cutoff = new Date()
+            cutoff.setDate(cutoff.getDate() - DAILY_PERIOD_DAYS[period])
+            const cutoffStr = formatDate(cutoff)
+            setCandles(data.filter((c) => c.time >= cutoffStr))
+          }
         }
       })
       .catch(() => {})
     return () => { cancelled = true }
   }, [stock.symbol, stock.exchange, period])
 
-  const todayChange =
+  const periodChange =
     candles.length >= 2
-      ? ((candles[candles.length - 1].close - candles[candles.length - 2].close) /
-          candles[candles.length - 2].close) *
-        100
+      ? ((candles[candles.length - 1].close - candles[0].close) / candles[0].close) * 100
       : null
 
   return (
     <div
       onClick={onSelect}
-      style={{
-        border: '1px solid #2a2a2a',
-        borderRadius: 6,
-        overflow: 'hidden',
-        cursor: 'pointer',
-        background: '#141414',
-      }}
+      style={{ border: '1px solid #2a2a2a', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', background: '#141414' }}
       onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#3a3a5a')}
       onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#2a2a2a')}
     >
-      <div
-        style={{
-          padding: '6px 10px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          borderBottom: '1px solid #1e1e1e',
-        }}
-      >
+      <div style={{ padding: '6px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #1e1e1e' }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: '#ddd' }}>{stock.symbol}</span>
-        {todayChange !== null && (
-          <span style={{ fontSize: 12, color: todayChange >= 0 ? '#26a69a' : '#ef5350' }}>
-            {todayChange >= 0 ? '+' : ''}
-            {todayChange.toFixed(2)}%
+        {periodChange !== null && (
+          <span style={{ fontSize: 12, color: periodChange >= 0 ? '#26a69a' : '#ef5350' }}>
+            {periodChange >= 0 ? '+' : ''}{periodChange.toFixed(2)}%
           </span>
         )}
       </div>
@@ -101,12 +90,15 @@ function StockCard({
 
 export default function SectorPage({ sector, onSelectSymbol }: Props) {
   const chartRef = useRef<StockChartHandle>(null)
-  const [period, setPeriod]     = useState<Period>('1W')
-  const [timezone, setTimezone] = useState<Timezone>('Asia/Seoul')
-  const [candles, setCandles]   = useState<Candle[]>([])
-  const [label, setLabel]       = useState('')
-  const [loading, setLoading]   = useState(false)
-  const [error, setError]       = useState<string | null>(null)
+  const [chartType, setChartType]       = useState<ChartType>('daily')
+  const [dailyPeriod, setDailyPeriod]   = useState<DailyPeriod>('1Y')
+  const [minutePeriod, setMinutePeriod] = useState<MinutePeriod>('3D')
+  const [cardPeriod, setCardPeriod]     = useState<DailyPeriod>('3M')
+  const [timezone, setTimezone]         = useState<Timezone>('Asia/Seoul')
+  const [candles, setCandles]           = useState<Candle[]>([])
+  const [label, setLabel]               = useState('')
+  const [loading, setLoading]           = useState(false)
+  const [error, setError]               = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -116,9 +108,16 @@ export default function SectorPage({ sector, onSelectSymbol }: Props) {
 
     const today = new Date()
     const end   = formatDate(today)
-    const start = formatDate(new Date(today.getTime() - (PERIOD_DAYS[period] - 1) * 86400000))
+    let start: string
+    if (chartType === 'daily') {
+      const days = DAILY_PERIOD_DAYS[dailyPeriod]
+      start = formatDate(new Date(today.getTime() - (days - 1) * 86400000))
+    } else {
+      const days = MINUTE_PERIOD_DAYS[minutePeriod]
+      start = formatDate(new Date(today.getTime() - (days - 1) * 86400000))
+    }
 
-    fetchSectorCandles(sector.id, start, end)
+    fetchSectorCandles(sector.id, start, end, chartType)
       .then((data) => {
         if (!cancelled) {
           setCandles(data.candles)
@@ -133,7 +132,7 @@ export default function SectorPage({ sector, onSelectSymbol }: Props) {
       })
 
     return () => { cancelled = true }
-  }, [sector.id, period])
+  }, [sector.id, chartType, dailyPeriod, minutePeriod])
 
   const activeBtn = (active: boolean): React.CSSProperties => ({
     padding: '4px 12px',
@@ -154,7 +153,7 @@ export default function SectorPage({ sector, onSelectSymbol }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-      {/* ── Top: composite chart (fixed height) ─────────────────── */}
+      {/* ── Top: composite chart ─────────────────── */}
       <div style={{ height: 360, flexShrink: 0, display: 'flex', flexDirection: 'column', borderBottom: '2px solid #222' }}>
         {/* Header */}
         <div style={{ padding: '10px 20px', borderBottom: '1px solid #1e1e1e', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
@@ -169,14 +168,39 @@ export default function SectorPage({ sector, onSelectSymbol }: Props) {
         </div>
 
         {/* Controls */}
-        <div style={{ padding: '8px 20px', borderBottom: '1px solid #1e1e1e', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          {(['1D', '3D', '1W', '1M', '3M'] as Period[]).map((p) => (
-            <button key={p} style={activeBtn(period === p)} onClick={() => setPeriod(p)}>{p}</button>
+        <div style={{ padding: '8px 20px', borderBottom: '1px solid #1e1e1e', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
+          {/* Chart type */}
+          <button style={activeBtn(chartType === 'daily')}  onClick={() => setChartType('daily')}>일봉</button>
+          <button style={activeBtn(chartType === 'minute')} onClick={() => setChartType('minute')}>분봉</button>
+
+          <div style={{ width: 1, height: 16, background: '#333', margin: '0 4px' }} />
+
+          {/* Period */}
+          {chartType === 'daily' ? (
+            (['1M', '3M', '1Y', 'ALL'] as DailyPeriod[]).map((p) => (
+              <button key={p} style={activeBtn(dailyPeriod === p)} onClick={() => setDailyPeriod(p)}>{p}</button>
+            ))
+          ) : (
+            (['1D', '3D', '1W'] as MinutePeriod[]).map((p) => (
+              <button key={p} style={activeBtn(minutePeriod === p)} onClick={() => setMinutePeriod(p)}>{p}</button>
+            ))
+          )}
+
+          <div style={{ width: 1, height: 16, background: '#333', margin: '0 4px' }} />
+
+          {/* Card period */}
+          <span style={{ fontSize: 10, color: '#555', whiteSpace: 'nowrap' }}>개별</span>
+          {(['1M', '3M', '1Y', 'ALL'] as DailyPeriod[]).map((p) => (
+            <button key={p} style={activeBtn(cardPeriod === p)} onClick={() => setCardPeriod(p)}>{p}</button>
           ))}
+
           <div style={{ width: 1, height: 16, background: '#333', margin: '0 4px' }} />
+
           <button style={activeBtn(timezone === 'Asia/Seoul')} onClick={() => setTimezone('Asia/Seoul')}>KST</button>
-          <button style={activeBtn(timezone === 'UTC')} onClick={() => setTimezone('UTC')}>UTC</button>
+          <button style={activeBtn(timezone === 'UTC')}        onClick={() => setTimezone('UTC')}>UTC</button>
+
           <div style={{ width: 1, height: 16, background: '#333', margin: '0 4px' }} />
+
           <button style={activeBtn(false)} onClick={() => chartRef.current?.resetZoom()}>전체보기</button>
         </div>
 
@@ -204,7 +228,7 @@ export default function SectorPage({ sector, onSelectSymbol }: Props) {
               overlays={EMPTY_OVERLAYS}
               timezone={timezone}
               exchange="SECTOR"
-              isIntraday={false}
+              isIntraday={chartType === 'minute'}
             />
           )}
         </div>
@@ -212,16 +236,12 @@ export default function SectorPage({ sector, onSelectSymbol }: Props) {
 
       {/* ── Bottom: individual stock grid ────────────────────────── */}
       <div style={{ flex: 1, overflowY: 'auto', padding: 12, background: '#0f0f0f' }}>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-          gap: 10,
-        }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
           {sector.stocks.map((stock) => (
             <StockCard
               key={stock.asset_id}
               stock={stock}
-              period={period}
+              period={cardPeriod}
               timezone={timezone}
               onSelect={() => onSelectSymbol?.(stock.symbol, stock.exchange)}
             />

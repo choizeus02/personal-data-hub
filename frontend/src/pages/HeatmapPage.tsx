@@ -68,6 +68,10 @@ export default function HeatmapPage({ symbols, sectors, onSelectSymbol, onSelect
       }}>
         {heatmap.map((sector) => {
           const totalWeight = sector.stocks.reduce((s, st) => s + st.weight, 0)
+          const validStocks = sector.stocks.filter((st) => st.change_pct !== null)
+          const weightedSum = validStocks.reduce((s, st) => s + st.weight * st.change_pct!, 0)
+          const validWeight = validStocks.reduce((s, st) => s + st.weight, 0)
+          const sectorChange = validWeight > 0 ? weightedSum / validWeight : null
           return (
             <div key={sector.id} style={{ border: '1px solid #2a2a2a', borderRadius: 6, overflow: 'hidden' }}>
               <div
@@ -82,9 +86,22 @@ export default function HeatmapPage({ symbols, sectors, onSelectSymbol, onSelect
                   letterSpacing: '0.8px',
                   borderBottom: '1px solid #2a2a2a',
                   userSelect: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
                 }}
               >
-                {sector.name.toUpperCase()}
+                <span>{sector.name.toUpperCase()}</span>
+                {sectorChange !== null && (
+                  <span style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: sectorChange >= 0 ? '#26a69a' : '#ef5350',
+                    letterSpacing: 0,
+                  }}>
+                    {sectorChange >= 0 ? '+' : ''}{sectorChange.toFixed(2)}%
+                  </span>
+                )}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2, padding: 2, background: '#0f0f0f' }}>
                 {sector.stocks.map((stock) => {
