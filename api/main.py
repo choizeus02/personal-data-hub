@@ -6,6 +6,7 @@ import os
 from dotenv import load_dotenv
 from datetime import date, timedelta
 from typing import Optional
+from pydantic import BaseModel
 
 load_dotenv()
 
@@ -56,6 +57,14 @@ NAMES = {
     "ON": "ON Semi", "ODFL": "Old Dominion",
     "ES=F": "E-mini S&P 500", "NQ=F": "E-mini NASDAQ-100",
 }
+
+
+class SectorCreate(BaseModel):
+    name: str
+
+class SectorStockItem(BaseModel):
+    asset_id: int
+    weight: float
 
 
 def get_connection():
@@ -253,6 +262,113 @@ def get_minute_candles(
                 for row in rows
             ],
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.get("/api/sectors")
+def get_sectors():
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT id, name FROM sectors ORDER BY id")
+            sectors = cur.fetchall()
+            result = []
+            for s in sectors:
+                cur.execute(
+                    """
+                    SELECT ss.asset_id, ss.weight, a.symbol, a.exchange
+                    FROM sector_stocks ss
+                    JOIN assets a ON a.id = ss.asset_id
+                    WHERE ss.sector_id = %s
+                    ORDER BY ss.asset_id
+                    """,
+                    (s["id"],),
+                )
+                stocks = cur.fetchall()
+                result.append({
+                    "id": s["id"],
+                    "name": s["name"],
+                    "stocks": [
+                        {
+                            "asset_id": st["asset_id"],
+                            "weight": float(st["weight"]),
+                            "symbol": st["symbol"],
+                            "exchange": st["exchange"],
+                        }
+                        for st in stocks
+                    ],
+                })
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.post("/api/sectors", status_code=201)
+def create_sector(body: SectorCreate):
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "INSERT INTO sectors (name) VALUES (%s) RETURNING id, name",
+                (body.name,),
+            )
+            row = cur.fetchone()
+        conn.commit()
+        return {"id": row["id"], "name": row["name"], "stocks": []}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.delete("/api/sectors/{sector_id}", status_code=204)
+def delete_sector(sector_id: int):
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM sectors WHERE id = %s", (sector_id,))
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="sector not found")
+        conn.commit()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.put("/api/sectors/{sector_id}/stocks")
+def update_sector_stocks(sector_id: int, stocks: list[SectorStockItem]):
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT id FROM sectors WHERE id = %s", (sector_id,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="sector not found")
+            cur.execute("DELETE FROM sector_stocks WHERE sector_id = %s", (sector_id,))
+            for s in stocks:
+                cur.execute(
+                    "INSERT INTO sector_stocks (sector_id, asset_id, weight) VALUES (%s, %s, %s)",
+                    (sector_id, s.asset_id, s.weight),
+                )
+        conn.commit()
+        return {"ok": True}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
