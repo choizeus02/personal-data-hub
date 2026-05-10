@@ -308,6 +308,74 @@ def get_sectors():
             conn.close()
 
 
+@app.get("/api/heatmap")
+def get_heatmap():
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                WITH sector_assets AS (
+                    SELECT DISTINCT ss.asset_id
+                    FROM sector_stocks ss
+                ),
+                daily_closes AS (
+                    SELECT
+                        o.asset_id,
+                        DATE(o.time AT TIME ZONE 'UTC') AS day,
+                        (array_agg(o.close ORDER BY o.time DESC))[1] AS close
+                    FROM ohlcv_min o
+                    WHERE o.asset_id IN (SELECT asset_id FROM sector_assets)
+                      AND o.time >= CURRENT_DATE - INTERVAL '5 days'
+                    GROUP BY o.asset_id, DATE(o.time AT TIME ZONE 'UTC')
+                ),
+                ranked AS (
+                    SELECT *, ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY day DESC) AS rn
+                    FROM daily_closes
+                )
+                SELECT
+                    s.id          AS sector_id,
+                    s.name        AS sector_name,
+                    a.id          AS asset_id,
+                    a.symbol,
+                    a.exchange,
+                    ss.weight,
+                    t.close,
+                    CASE
+                        WHEN y.close IS NOT NULL AND y.close > 0
+                        THEN ROUND(((t.close - y.close) / y.close * 100)::numeric, 2)
+                        ELSE NULL
+                    END AS change_pct
+                FROM sectors s
+                JOIN sector_stocks ss ON ss.sector_id = s.id
+                JOIN assets a         ON a.id = ss.asset_id
+                LEFT JOIN ranked t    ON t.asset_id = ss.asset_id AND t.rn = 1
+                LEFT JOIN ranked y    ON y.asset_id = ss.asset_id AND y.rn = 2
+                ORDER BY s.id, ss.weight DESC
+            """)
+            rows = cur.fetchall()
+
+        sectors: dict = {}
+        for row in rows:
+            sid = row["sector_id"]
+            if sid not in sectors:
+                sectors[sid] = {"id": sid, "name": row["sector_name"], "stocks": []}
+            sectors[sid]["stocks"].append({
+                "asset_id": row["asset_id"],
+                "symbol":   row["symbol"],
+                "exchange": row["exchange"],
+                "weight":   float(row["weight"]),
+                "close":    float(row["close"]) if row["close"] is not None else None,
+                "change_pct": float(row["change_pct"]) if row["change_pct"] is not None else None,
+            })
+        return list(sectors.values())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+
 @app.post("/api/sectors", status_code=201)
 def create_sector(body: SectorCreate):
     conn = None
