@@ -30,6 +30,7 @@ export interface SectorStock {
 export interface Sector {
   id: number
   name: string
+  memo?: string | null
   stocks: SectorStock[]
 }
 

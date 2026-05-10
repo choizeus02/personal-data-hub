@@ -68,6 +68,15 @@ export async function updateSectorStocks(
   if (!res.ok) throw new Error('sector stocks update failed')
 }
 
+export async function saveSectorMemo(id: number, memo: string): Promise<void> {
+  const res = await fetch(`/trading/api/sectors/${id}/memo`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ memo }),
+  })
+  if (!res.ok) throw new Error('memo save failed')
+}
+
 export async function fetchSectorCandles(
   id: number,
   start: string,

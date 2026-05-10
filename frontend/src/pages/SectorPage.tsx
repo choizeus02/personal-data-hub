@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { fetchSectorCandles, fetchDaily, fetchWeekly } from '../api'
+import { fetchSectorCandles, fetchDaily, fetchWeekly, saveSectorMemo } from '../api'
 import type { Sector, SectorStock, Candle } from '../types'
 import StockChart, { type Timezone, type StockChartHandle } from '../components/StockChart'
 
@@ -10,6 +10,7 @@ type MinutePeriod = '1D' | '3D' | '1W'
 interface Props {
   sector: Sector
   onSelectSymbol?: (symbol: string, exchange: string) => void
+  onEdit?: () => void
 }
 
 function formatDate(d: Date) {
@@ -91,7 +92,7 @@ function StockCard({
   )
 }
 
-export default function SectorPage({ sector, onSelectSymbol }: Props) {
+export default function SectorPage({ sector, onSelectSymbol, onEdit }: Props) {
   const chartRef = useRef<StockChartHandle>(null)
   const [chartType, setChartType]       = useState<ChartType>('daily')
   const [dailyPeriod, setDailyPeriod]   = useState<DailyPeriod>('1Y')
@@ -103,6 +104,29 @@ export default function SectorPage({ sector, onSelectSymbol }: Props) {
   const [label, setLabel]               = useState('')
   const [loading, setLoading]           = useState(false)
   const [error, setError]               = useState<string | null>(null)
+  const [memoOpen, setMemoOpen]         = useState(false)
+  const [memo, setMemo]                 = useState(sector.memo ?? '')
+  const [saveStatus, setSaveStatus]     = useState<'saved' | 'saving'>('saved')
+  const savedMemoRef                    = useRef(sector.memo ?? '')
+
+  useEffect(() => {
+    setMemo(sector.memo ?? '')
+    savedMemoRef.current = sector.memo ?? ''
+    setSaveStatus('saved')
+  }, [sector.id])
+
+  useEffect(() => {
+    if (memo === savedMemoRef.current) return
+    setSaveStatus('saving')
+    const timer = setTimeout(async () => {
+      try {
+        await saveSectorMemo(sector.id, memo)
+        savedMemoRef.current = memo
+        setSaveStatus('saved')
+      } catch { /* keep saving state */ }
+    }, 800)
+    return () => clearTimeout(timer)
+  }, [memo, sector.id])
 
   useEffect(() => {
     let cancelled = false
@@ -169,6 +193,20 @@ export default function SectorPage({ sector, onSelectSymbol }: Props) {
             </span>
           )}
           {label && <span style={{ fontSize: 12, color: '#2563eb', marginLeft: 'auto' }}>{label}</span>}
+          <div style={{ marginLeft: label ? 0 : 'auto', display: 'flex', gap: 6 }}>
+            {onEdit && (
+              <button onClick={onEdit} title="섹터 편집" style={{ background: 'none', border: '1px solid #333', borderRadius: 4, color: '#888', cursor: 'pointer', fontSize: 12, padding: '3px 8px' }}>
+                편집
+              </button>
+            )}
+            <button
+              onClick={() => setMemoOpen((v) => !v)}
+              title="메모"
+              style={{ background: memoOpen ? 'rgba(37,99,235,0.2)' : 'none', border: `1px solid ${memoOpen ? '#2563eb' : '#333'}`, borderRadius: 4, color: memoOpen ? '#60a5fa' : '#888', cursor: 'pointer', fontSize: 12, padding: '3px 8px' }}
+            >
+              메모{saveStatus === 'saving' ? ' •' : ''}
+            </button>
+          </div>
         </div>
 
         {/* Controls */}
@@ -201,7 +239,8 @@ export default function SectorPage({ sector, onSelectSymbol }: Props) {
           <button style={activeBtn(false)} onClick={() => chartRef.current?.resetZoom()}>전체보기</button>
         </div>
 
-        {/* Composite chart */}
+        {/* Composite chart + memo */}
+        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
           {loading && (
             <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', fontSize: 14, zIndex: 10 }}>
@@ -228,6 +267,24 @@ export default function SectorPage({ sector, onSelectSymbol }: Props) {
               isIntraday={chartType === 'minute'}
             />
           )}
+        </div>
+        {memoOpen && (
+          <div style={{ width: 220, borderLeft: '1px solid #2a2a2a', display: 'flex', flexDirection: 'column', background: '#111' }}>
+            <textarea
+              value={memo}
+              onChange={(e) => setMemo(e.target.value)}
+              placeholder="투자 메모, 섹터 분석..."
+              style={{
+                flex: 1, resize: 'none', background: 'transparent', border: 'none', outline: 'none',
+                color: '#ccc', fontSize: 12, lineHeight: 1.6, padding: '10px 12px',
+                fontFamily: 'system-ui, sans-serif',
+              }}
+            />
+            <div style={{ padding: '4px 12px', fontSize: 10, color: saveStatus === 'saving' ? '#f59e0b' : '#444', borderTop: '1px solid #1e1e1e', textAlign: 'right' }}>
+              {saveStatus === 'saving' ? '저장 중...' : '저장됨'}
+            </div>
+          </div>
+        )}
         </div>
       </div>
 

@@ -193,7 +193,11 @@ export default function App() {
 
       <main style={{ flex: 1, overflow: 'hidden', background: '#0f0f0f' }}>
         {selected?.type === 'sector' ? (
-          <SectorPage sector={selected.data} onSelectSymbol={handleSelectFromHeatmap} />
+          <SectorPage
+            sector={selected.data}
+            onSelectSymbol={handleSelectFromHeatmap}
+            onEdit={() => setEditingSector(selected.data)}
+          />
         ) : selected?.type === 'symbol' ? (
           <ChartPage symbol={selected.data} />
         ) : (
@@ -215,6 +219,9 @@ export default function App() {
                 ? [...prev, saved]
                 : prev.map((s) => (s.id === saved.id ? saved : s))
             )
+            if (selected?.type === 'sector' && selected.data.id === saved.id) {
+              setSelected({ type: 'sector', data: { ...saved, memo: selected.data.memo } })
+            }
             setEditingSector(null)
           }}
           onDelete={(id) => {

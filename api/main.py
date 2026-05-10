@@ -66,6 +66,9 @@ class SectorStockItem(BaseModel):
     asset_id: int
     weight: float = Field(..., gt=0)
 
+class SectorMemoUpdate(BaseModel):
+    memo: Optional[str] = None
+
 
 def get_connection():
     return psycopg2.connect(
@@ -339,7 +342,7 @@ def get_sectors():
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
-                SELECT s.id, s.name,
+                SELECT s.id, s.name, s.memo,
                        ss.asset_id, ss.weight, a.symbol, a.exchange
                 FROM sectors s
                 LEFT JOIN sector_stocks ss ON ss.sector_id = s.id
@@ -353,7 +356,7 @@ def get_sectors():
         for row in rows:
             sid = row["id"]
             if sid not in sectors:
-                sectors[sid] = {"id": sid, "name": row["name"], "stocks": []}
+                sectors[sid] = {"id": sid, "name": row["name"], "memo": row["memo"], "stocks": []}
             if row["asset_id"] is not None:
                 sectors[sid]["stocks"].append({
                     "asset_id": row["asset_id"],
@@ -444,12 +447,35 @@ def create_sector(body: SectorCreate):
         conn = get_connection()
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                "INSERT INTO sectors (name) VALUES (%s) RETURNING id, name",
+                "INSERT INTO sectors (name) VALUES (%s) RETURNING id, name, memo",
                 (body.name,),
             )
             row = cur.fetchone()
         conn.commit()
-        return {"id": row["id"], "name": row["name"], "stocks": []}
+        return {"id": row["id"], "name": row["name"], "memo": row["memo"], "stocks": []}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.patch("/api/sectors/{sector_id}/memo")
+def update_sector_memo(sector_id: int, body: SectorMemoUpdate):
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE sectors SET memo = %s WHERE id = %s",
+                (body.memo, sector_id),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="sector not found")
+        conn.commit()
+        return {"ok": True}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
