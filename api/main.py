@@ -59,6 +59,12 @@ NAMES = {
 }
 
 
+class SymbolCreate(BaseModel):
+    symbol: str = Field(..., min_length=1)
+    exchange: str = Field(..., min_length=1)
+    asset_type: str = Field(default="STOCK")
+    currency: str = Field(default="USD")
+
 class SectorCreate(BaseModel):
     name: str = Field(..., min_length=1)
 
@@ -126,6 +132,45 @@ def toggle_favorite(symbol: str, exchange: str = Query(...)):
         return {"isFavorite": row["is_favorite"] == 1}
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.post("/api/symbols", status_code=201)
+def create_symbol(data: SymbolCreate):
+    conn = None
+    try:
+        sym = data.symbol.upper().strip()
+        exc = data.exchange.upper().strip()
+        conn = get_connection()
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                INSERT INTO assets (symbol, asset_type, exchange, currency)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (symbol, exchange) DO NOTHING
+                RETURNING id, symbol, exchange, is_favorite
+                """,
+                (sym, data.asset_type, exc, data.currency),
+            )
+            row = cur.fetchone()
+            if not row:
+                cur.execute(
+                    "SELECT id, symbol, exchange, is_favorite FROM assets WHERE symbol = %s AND exchange = %s",
+                    (sym, exc),
+                )
+                row = cur.fetchone()
+        conn.commit()
+        return {
+            "id": row["id"],
+            "symbol": row["symbol"],
+            "exchange": row["exchange"],
+            "name": NAMES.get(row["symbol"], row["symbol"]),
+            "isFavorite": row["is_favorite"] == 1,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:

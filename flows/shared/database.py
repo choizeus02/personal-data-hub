@@ -73,6 +73,17 @@ def ensure_tables(conn):
     conn.commit()
 
 
+def get_assets_by_exchange(conn, exchange: str) -> list[dict]:
+    """DB에서 해당 거래소 전체 자산 목록 반환"""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, symbol, asset_type, exchange, currency FROM assets WHERE exchange = %s ORDER BY symbol",
+            (exchange,),
+        )
+        cols = ["id", "symbol", "asset_type", "exchange", "currency"]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
 def get_or_create_asset(conn, symbol: str, asset_type: str, exchange: str, currency: str) -> int:
     with conn.cursor() as cur:
         cur.execute(

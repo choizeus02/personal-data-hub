@@ -35,6 +35,21 @@ export async function fetchMinute(
   return res.json()
 }
 
+export async function addSymbol(
+  symbol: string,
+  exchange: string,
+  assetType = 'STOCK',
+  currency = 'USD'
+): Promise<Symbol> {
+  const res = await fetch('/trading/api/symbols', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ symbol, exchange, asset_type: assetType, currency }),
+  })
+  if (!res.ok) throw new Error('symbol add failed')
+  return res.json()
+}
+
 export async function fetchSectors(): Promise<Sector[]> {
   const res = await fetch('/trading/api/sectors')
   if (!res.ok) throw new Error('sectors fetch failed')

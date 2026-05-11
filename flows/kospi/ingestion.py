@@ -8,9 +8,8 @@ from datetime import datetime, timedelta, timezone, date
 from prefect import flow, task, get_run_logger
 from prefect.cache_policies import NO_CACHE
 
-from shared.database import get_conn, ensure_tables, get_or_create_asset, upsert_ohlcv, get_existing_days, get_trading_days, get_days_to_fetch
+from shared.database import get_conn, ensure_tables, get_assets_by_exchange, upsert_ohlcv, get_existing_days, get_trading_days, get_days_to_fetch
 from shared.kis_client import get_access_token, fetch_minute_candles, fetch_all_candles_for_day, parse_candle
-from kospi.tickers import KR_STOCKS
 
 KST = timezone(timedelta(hours=9))
 MARKET_OPEN = (9, 0)
@@ -27,16 +26,6 @@ def is_market_open() -> bool:
     t = (now.hour, now.minute)
     return MARKET_OPEN <= t <= MARKET_CLOSE
 
-
-
-def _get_asset_id_map(conn, assets: list[dict]) -> dict[str, int]:
-    """자산 목록을 assets 테이블에 등록하고 symbol → asset_id 맵 반환"""
-    return {
-        a["symbol"]: get_or_create_asset(
-            conn, a["symbol"], a["asset_type"], a["exchange"], a["currency"]
-        )
-        for a in assets
-    }
 
 
 @task(retries=2, retry_delay_seconds=5, cache_policy=NO_CACHE)
@@ -86,16 +75,22 @@ def micro_batch_flow():
 
     now = datetime.now(KST)
     time_str = now.strftime("%H%M%S")
-    n = len(KR_STOCKS)
-    logger.info(f"수집 시작  {now.strftime('%H:%M:%S')} KST  ({n}종목)")
 
     with get_conn() as conn:
         ensure_tables(conn)
         token = get_access_token(conn)
-        asset_id_map = _get_asset_id_map(conn, KR_STOCKS)
+        assets = get_assets_by_exchange(conn, 'KRX')
+
+    if not assets:
+        logger.info("DB에 KRX 종목 없음. 스킵.")
+        return
+
+    asset_id_map = {a['symbol']: a['id'] for a in assets}
+    n = len(assets)
+    logger.info(f"수집 시작  {now.strftime('%H:%M:%S')} KST  ({n}종목)")
 
     success, fail = 0, 0
-    for asset in KR_STOCKS:
+    for asset in assets:
         symbol = asset["symbol"]
         asset_id = asset_id_map[symbol]
         result = fetch_and_upsert(asset_id, symbol, token, time_str)
@@ -119,11 +114,6 @@ def backfill_flow(symbols: str | None = None):
     logger = get_run_logger()
 
     symbol_list = [s.strip() for s in symbols.split(",")] if symbols else None
-    target_assets = (
-        [a for a in KR_STOCKS if a["symbol"] in symbol_list]
-        if symbol_list else KR_STOCKS
-    )
-    logger.info(f"대상 종목: {len(target_assets)}개 {symbol_list if symbol_list else '(전체)'}")
 
     today = datetime.now(KST).date()
     start = today - timedelta(days=KIS_MAX_HISTORY_DAYS)
@@ -133,8 +123,15 @@ def backfill_flow(symbols: str | None = None):
     with get_conn() as conn:
         ensure_tables(conn)
         token = get_access_token(conn)
-        asset_id_map = _get_asset_id_map(conn, target_assets)
+        all_assets = get_assets_by_exchange(conn, 'KRX')
         existing = get_existing_days(conn, "KRX", start, end)
+
+    target_assets = (
+        [a for a in all_assets if a['symbol'] in symbol_list]
+        if symbol_list else all_assets
+    )
+    asset_id_map = {a['symbol']: a['id'] for a in target_assets}
+    logger.info(f"대상 종목: {len(target_assets)}개 {symbol_list if symbol_list else '(전체)'}")
 
     days_to_fetch = get_days_to_fetch(existing, all_days)
     logger.info(

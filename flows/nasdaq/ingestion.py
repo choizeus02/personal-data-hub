@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone, date
 from prefect import flow, task, get_run_logger
 from prefect.cache_policies import NO_CACHE
 
-from shared.database import get_conn, ensure_tables, get_or_create_asset, upsert_ohlcv, get_existing_days, get_trading_days, get_days_to_fetch
+from shared.database import get_conn, ensure_tables, get_assets_by_exchange, upsert_ohlcv, get_existing_days, get_trading_days, get_days_to_fetch
 from shared.yfinance_client import (
     is_market_open,
     is_futures_open,
@@ -18,21 +18,11 @@ from shared.yfinance_client import (
     YFINANCE_1M_MAX_DAYS,
 )
 from shared.massive_client import iter_minute_bars, parse_bar, MASSIVE_MAX_HISTORY_DAYS
-from nasdaq.tickers import US_STOCKS, US_FUTURES
 
 UTC = timezone.utc
 BATCH_SLEEP = 0.2  # 종목 간 딜레이 (Yahoo 레이트 리밋 완화)
 BACKFILL_BUFFER_DAYS = 1  # gap 경계 양쪽 ±N일 중복 수집
 
-
-
-def _get_asset_id_map(conn, assets: list[dict]) -> dict[str, int]:
-    return {
-        a["symbol"]: get_or_create_asset(
-            conn, a["symbol"], a["asset_type"], a["exchange"], a["currency"]
-        )
-        for a in assets
-    }
 
 
 @task(retries=2, retry_delay_seconds=5, cache_policy=NO_CACHE)
@@ -107,14 +97,19 @@ def micro_batch_flow():
         logger.info("나스닥 장 운영 시간 외. 스킵.")
         return
 
-    logger.info(f"수집 시작, 종목 수: {len(US_STOCKS)}")
-
     with get_conn() as conn:
         ensure_tables(conn)
-        asset_id_map = _get_asset_id_map(conn, US_STOCKS)
+        assets = get_assets_by_exchange(conn, 'NASDAQ')
+
+    if not assets:
+        logger.info("DB에 NASDAQ 종목 없음. 스킵.")
+        return
+
+    asset_id_map = {a['symbol']: a['id'] for a in assets}
+    logger.info(f"수집 시작, 종목 수: {len(assets)}")
 
     success, fail = 0, 0
-    for asset in US_STOCKS:
+    for asset in assets:
         symbol = asset["symbol"]
         asset_id = asset_id_map[symbol]
         result = fetch_and_upsert(asset_id, symbol)
@@ -138,18 +133,20 @@ def backfill_flow(symbols: str | None = None):
     logger = get_run_logger()
 
     symbol_list = [s.strip() for s in symbols.split(",")] if symbols else None
+
+    with get_conn() as conn:
+        ensure_tables(conn)
+        all_assets = get_assets_by_exchange(conn, 'NASDAQ')
+
     target_assets = (
-        [a for a in US_STOCKS if a["symbol"] in symbol_list]
-        if symbol_list else US_STOCKS
+        [a for a in all_assets if a['symbol'] in symbol_list]
+        if symbol_list else all_assets
     )
+    asset_id_map = {a['symbol']: a['id'] for a in target_assets}
     logger.info(f"대상 종목: {len(target_assets)}개 {symbol_list if symbol_list else '(전체)'}")
 
     use_massive = bool(os.environ.get("MASSIVE_API_KEY"))
     today = datetime.now(UTC).date()
-
-    with get_conn() as conn:
-        ensure_tables(conn)
-        asset_id_map = _get_asset_id_map(conn, target_assets)
 
     if use_massive:
         start = today - timedelta(days=MASSIVE_MAX_HISTORY_DAYS - 1)
@@ -209,18 +206,20 @@ def eod_sync_flow(symbols: str | None = None):
     logger = get_run_logger()
 
     symbol_list = [s.strip() for s in symbols.split(",")] if symbols else None
+
+    with get_conn() as conn:
+        ensure_tables(conn)
+        all_assets = get_assets_by_exchange(conn, 'NASDAQ')
+
     target_assets = (
-        [a for a in US_STOCKS if a["symbol"] in symbol_list]
-        if symbol_list else US_STOCKS
+        [a for a in all_assets if a['symbol'] in symbol_list]
+        if symbol_list else all_assets
     )
+    asset_id_map = {a['symbol']: a['id'] for a in target_assets}
     logger.info(f"EOD sync 시작  {len(target_assets)}종목 {symbol_list if symbol_list else '(전체)'}")
 
     today = datetime.now(UTC).date()
     n = len(target_assets)
-
-    with get_conn() as conn:
-        ensure_tables(conn)
-        asset_id_map = _get_asset_id_map(conn, target_assets)
 
     total_rows = 0
     for i, asset in enumerate(target_assets, 1):
@@ -241,14 +240,19 @@ def micro_batch_futures_flow():
         logger.info("CME 선물 운영 시간 외. 스킵.")
         return
 
-    logger.info(f"선물 수집 시작, 종목 수: {len(US_FUTURES)}")
-
     with get_conn() as conn:
         ensure_tables(conn)
-        asset_id_map = _get_asset_id_map(conn, US_FUTURES)
+        assets = get_assets_by_exchange(conn, 'CME')
+
+    if not assets:
+        logger.info("DB에 CME 종목 없음. 스킵.")
+        return
+
+    asset_id_map = {a['symbol']: a['id'] for a in assets}
+    logger.info(f"선물 수집 시작, 종목 수: {len(assets)}")
 
     success, fail = 0, 0
-    for asset in US_FUTURES:
+    for asset in assets:
         symbol = asset["symbol"]
         asset_id = asset_id_map[symbol]
         result = fetch_and_upsert(asset_id, symbol)
@@ -272,10 +276,12 @@ def backfill_futures_flow():
 
     with get_conn() as conn:
         ensure_tables(conn)
-        asset_id_map = _get_asset_id_map(conn, US_FUTURES)
+        assets = get_assets_by_exchange(conn, 'CME')
+
+    asset_id_map = {a['symbol']: a['id'] for a in assets}
 
     total_rows = 0
-    for asset in US_FUTURES:
+    for asset in assets:
         symbol = asset["symbol"]
         asset_id = asset_id_map[symbol]
         start_dt = datetime(start.year, start.month, start.day, tzinfo=UTC)
