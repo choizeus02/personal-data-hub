@@ -65,6 +65,7 @@ def backfill_ticker_day(asset_id: int, symbol: str, day: date) -> int:
 @task(retries=2, retry_delay_seconds=30, cache_policy=NO_CACHE)
 def backfill_ticker_massive(asset_id: int, symbol: str, start: date, end: date) -> int:
     """단일 종목 전체 range 분봉 적재 (Massive.com, 2년치 가능) — 페이지별 즉시 upsert"""
+    import requests as _requests
     logger = get_run_logger()
     try:
         total = 0
@@ -75,7 +76,6 @@ def backfill_ticker_massive(asset_id: int, symbol: str, start: date, end: date) 
             with get_conn() as conn:
                 upsert_ohlcv(conn, rows)
             total += len(bars)
-            # 페이지 내 첫/마지막 날짜
             first_day = datetime.fromtimestamp(bars[0]["t"] / 1000, tz=UTC).strftime("%Y-%m-%d")
             last_day  = datetime.fromtimestamp(bars[-1]["t"] / 1000, tz=UTC).strftime("%Y-%m-%d")
             logger.info(f"[{symbol}] p{page} {first_day}~{last_day}  +{len(bars):,}건  누적 {total:,}건")
@@ -84,6 +84,12 @@ def backfill_ticker_massive(asset_id: int, symbol: str, start: date, end: date) 
         else:
             logger.info(f"[{symbol}] 완료 ── {start}~{end}  총 {total:,}건")
         return total
+    except _requests.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code == 403:
+            logger.warning(f"[{symbol}] Massive API 접근 불가 (403) — 스킵")
+            return 0
+        logger.error(f"[{symbol}] 실패: {type(e).__name__}: {e}")
+        raise
     except Exception as e:
         logger.error(f"[{symbol}] 실패: {type(e).__name__}: {e}")
         raise
