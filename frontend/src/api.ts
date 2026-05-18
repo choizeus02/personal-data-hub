@@ -1,4 +1,4 @@
-import type { Symbol, Candle, MinuteResponse, Sector } from './types'
+import type { Symbol, Candle, MinuteResponse, Sector, AssetSetting } from './types'
 
 export async function fetchSymbols(): Promise<Symbol[]> {
   const res = await fetch('/trading/api/symbols')
@@ -101,4 +101,22 @@ export async function fetchSectorCandles(
   const res = await fetch(`/trading/api/sectors/${id}/candles?start=${start}&end=${end}&chart_type=${chartType}`)
   if (!res.ok) throw new Error('sector candles fetch failed')
   return res.json()
+}
+
+export async function fetchAssetSettings(exchange?: string): Promise<AssetSetting[]> {
+  const url = exchange
+    ? `/trading/api/assets/settings?exchange=${exchange}`
+    : '/trading/api/assets/settings'
+  const res = await fetch(url)
+  if (!res.ok) throw new Error('asset settings fetch failed')
+  return res.json()
+}
+
+export async function updateShares(id: number, shares: number): Promise<void> {
+  const res = await fetch(`/trading/api/assets/${id}/shares`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ shares_outstanding: shares }),
+  })
+  if (!res.ok) throw new Error('shares update failed')
 }

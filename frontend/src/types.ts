@@ -37,3 +37,13 @@ export interface Sector {
 export type Selected =
   | { type: 'symbol'; data: Symbol }
   | { type: 'sector'; data: Sector }
+  | { type: 'settings' }
+
+export interface AssetSetting {
+  id: number
+  symbol: string
+  exchange: string
+  name: string
+  asset_type: string
+  shares_outstanding: number | null
+}
