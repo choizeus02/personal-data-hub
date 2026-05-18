@@ -326,14 +326,13 @@ def update_shares_flow():
         yf_symbol = symbol + ".KS" if asset["exchange"] == "KRX" else symbol
         try:
             shares = yf.Ticker(yf_symbol).info.get("sharesOutstanding")
-            if shares:
+            if shares is not None:
                 with get_conn() as conn:
                     with conn.cursor() as cur:
                         cur.execute(
                             "UPDATE assets SET shares_outstanding = %s WHERE id = %s",
                             (shares, asset["id"]),
                         )
-                    conn.commit()
                 updated += 1
                 logger.info(f"[{symbol}] {shares:,}")
             else:
