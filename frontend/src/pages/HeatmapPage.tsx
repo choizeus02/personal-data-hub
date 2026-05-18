@@ -82,7 +82,7 @@ export default function HeatmapPage({ symbols, sectors, onSelectSymbol, onSelect
               border: '1px solid #2a2a2a',
               borderRadius: 6,
               overflow: 'hidden',
-              flexGrow: sector.stocks.reduce((sum, s) => sum + eff(s), 0) || 1,
+              flexGrow: totalEff || 1,
               flexShrink: 0,
               flexBasis: 280,
               minWidth: 280,
