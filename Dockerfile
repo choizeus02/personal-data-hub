@@ -6,6 +6,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY flows/ ./flows/
+COPY prefect.yaml .
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app/flows
