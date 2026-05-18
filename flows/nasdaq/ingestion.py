@@ -3,6 +3,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import time
+import yfinance as yf
 from datetime import datetime, timedelta, timezone, date
 
 from prefect import flow, task, get_run_logger
@@ -304,6 +305,46 @@ def backfill_futures_flow():
         time.sleep(BATCH_SLEEP)
 
     logger.info(f"백필 완료 — 총 {total_rows}건 적재")
+
+
+@flow(name="update-shares", log_prints=True)
+def update_shares_flow():
+    logger = get_run_logger()
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, symbol, exchange FROM assets WHERE asset_type != 'FUTURE' ORDER BY exchange, symbol"
+            )
+            assets = [{"id": r[0], "symbol": r[1], "exchange": r[2]} for r in cur.fetchall()]
+
+    logger.info(f"주식수 업데이트 시작: {len(assets)}종목")
+    updated, skipped = 0, 0
+
+    for asset in assets:
+        symbol = asset["symbol"]
+        yf_symbol = symbol + ".KS" if asset["exchange"] == "KRX" else symbol
+        try:
+            shares = yf.Ticker(yf_symbol).info.get("sharesOutstanding")
+            if shares:
+                with get_conn() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "UPDATE assets SET shares_outstanding = %s WHERE id = %s",
+                            (shares, asset["id"]),
+                        )
+                    conn.commit()
+                updated += 1
+                logger.info(f"[{symbol}] {shares:,}")
+            else:
+                skipped += 1
+                logger.warning(f"[{symbol}] sharesOutstanding 없음 — 스킵")
+        except Exception as e:
+            skipped += 1
+            logger.warning(f"[{symbol}] 실패: {e}")
+        time.sleep(0.5)
+
+    logger.info(f"완료 — 업데이트: {updated}, 스킵: {skipped}")
 
 
 if __name__ == "__main__":
