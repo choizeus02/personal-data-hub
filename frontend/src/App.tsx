@@ -5,6 +5,7 @@ import ChartPage from './pages/ChartPage'
 import SectorPage from './pages/SectorPage'
 import SectorEditor from './components/SectorEditor'
 import HeatmapPage from './pages/HeatmapPage'
+import AssetSettingsPage from './pages/AssetSettingsPage'
 
 export default function App() {
   const [symbols, setSymbols]   = useState<Symbol[]>([])
@@ -255,6 +256,31 @@ export default function App() {
           {renderGroup('NASDAQ', nasdaq)}
           {renderGroup('KRX', krx)}
         </div>
+        <div
+          style={{
+            padding: '8px 10px',
+            borderTop: '1px solid #2a2a2a',
+            flexShrink: 0,
+          }}
+        >
+          <button
+            onClick={() => setSelected({ type: 'settings' })}
+            style={{
+              width: '100%',
+              padding: '6px 10px',
+              background: selected?.type === 'settings' ? '#1e3a5f' : 'none',
+              border: selected?.type === 'settings' ? '1px solid #2563eb' : '1px solid transparent',
+              borderRadius: 4,
+              color: selected?.type === 'settings' ? '#90b8f8' : '#555',
+              cursor: 'pointer',
+              fontSize: 12,
+              textAlign: 'left',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            ⚙ 자산 설정
+          </button>
+        </div>
       </aside>
 
       <main style={{ flex: 1, overflow: 'hidden', background: '#0f0f0f', position: 'relative' }}>
@@ -270,7 +296,9 @@ export default function App() {
         >
           {sidebarOpen ? '◀' : '▶'}
         </button>
-        {selected?.type === 'sector' ? (
+        {selected?.type === 'settings' ? (
+          <AssetSettingsPage />
+        ) : selected?.type === 'sector' ? (
           <SectorPage
             sector={selected.data}
             onSelectSymbol={handleSelectFromHeatmap}
