@@ -449,6 +449,7 @@ def get_heatmap():
                     a.symbol,
                     a.exchange,
                     ss.weight,
+                    a.shares_outstanding,
                     t.close,
                     CASE
                         WHEN y.close IS NOT NULL AND y.close > 0
@@ -469,6 +470,11 @@ def get_heatmap():
             sid = row["sector_id"]
             if sid not in sectors:
                 sectors[sid] = {"id": sid, "name": row["sector_name"], "stocks": []}
+            market_cap = (
+                float(row["close"]) * row["shares_outstanding"]
+                if row["close"] is not None and row["shares_outstanding"] is not None
+                else None
+            )
             sectors[sid]["stocks"].append({
                 "asset_id": row["asset_id"],
                 "symbol":   row["symbol"],
@@ -476,6 +482,7 @@ def get_heatmap():
                 "weight":   float(row["weight"]),
                 "close":    float(row["close"]) if row["close"] is not None else None,
                 "change_pct": float(row["change_pct"]) if row["change_pct"] is not None else None,
+                "market_cap": market_cap,
             })
         return list(sectors.values())
     except Exception as e:
