@@ -8,6 +8,7 @@ interface HeatmapStock {
   weight: number
   close: number | null
   change_pct: number | null
+  market_cap: number | null
 }
 
 interface HeatmapSector {
@@ -59,21 +60,33 @@ export default function HeatmapPage({ symbols, sectors, onSelectSymbol, onSelect
     )
   }
 
+  const eff = (s: HeatmapStock) =>
+    s.market_cap !== null ? s.weight * s.market_cap : s.weight
+
   return (
     <div style={{ height: '100%', overflowY: 'auto', padding: 12, background: '#0f0f0f' }}>
       <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+        display: 'flex',
+        flexWrap: 'wrap',
         gap: 10,
+        alignItems: 'flex-start',
       }}>
         {heatmap.map((sector) => {
-          const totalWeight = sector.stocks.reduce((s, st) => s + st.weight, 0)
+          const totalEff = sector.stocks.reduce((sum, s) => sum + eff(s), 0)
           const validStocks = sector.stocks.filter((st) => st.change_pct !== null)
           const weightedSum = validStocks.reduce((s, st) => s + st.weight * st.change_pct!, 0)
           const validWeight = validStocks.reduce((s, st) => s + st.weight, 0)
           const sectorChange = validWeight > 0 ? weightedSum / validWeight : null
           return (
-            <div key={sector.id} style={{ border: '1px solid #2a2a2a', borderRadius: 6, overflow: 'hidden' }}>
+            <div key={sector.id} style={{
+              border: '1px solid #2a2a2a',
+              borderRadius: 6,
+              overflow: 'hidden',
+              flexGrow: sector.stocks.reduce((sum, s) => sum + eff(s), 0) || 1,
+              flexShrink: 0,
+              flexBasis: 280,
+              minWidth: 280,
+            }}>
               <div
                 onClick={() => onSelectSector(sector.id)}
                 style={{
@@ -105,13 +118,13 @@ export default function HeatmapPage({ symbols, sectors, onSelectSymbol, onSelect
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2, padding: 2, background: '#0f0f0f' }}>
                 {sector.stocks.map((stock) => {
-                  const widthPct = Math.max(8, (stock.weight / totalWeight) * 100)
+                  const widthPct = Math.max(8, (eff(stock) / totalEff) * 100)
                   return (
                     <div
                       key={stock.asset_id}
                       onClick={() => onSelectSymbol(stock.symbol, stock.exchange)}
                       style={{
-                        flexGrow: stock.weight,
+                        flexGrow: eff(stock),
                         flexShrink: 0,
                         flexBasis: `calc(${widthPct}% - 2px)`,
                         minWidth: 44,
