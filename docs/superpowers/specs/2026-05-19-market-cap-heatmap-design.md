@@ -151,7 +151,17 @@ export async function updateShares(id: number, shares: number): Promise<void>
 
 ### pages/HeatmapPage.tsx
 
-기존 tile 크기 계산 교체:
+**섹터 카드 크기** — 섹터 전체 시총에 비례:
+```typescript
+// 섹터별 유효 시총 합산
+const sectorEff = (sector: HeatmapSector) =>
+  sector.stocks.reduce((sum, s) => sum + eff(s), 0)
+
+// 섹터 컨테이너: grid → flex wrap으로 변경
+// flexGrow: sectorEff(sector), minWidth: 280px
+```
+
+**종목 타일 크기** — 기존 tile 크기 계산 교체:
 
 ```typescript
 // 기존
@@ -168,6 +178,8 @@ const widthPct = Math.max(8, (eff(stock) / totalEff) * 100)
 ```
 
 market_cap이 null인 종목(shares_outstanding 미입력)은 `weight`만으로 fallback.
+
+섹터 카드도 market_cap 데이터가 전혀 없는 경우(모든 종목 null) → 동일 크기 fallback.
 
 ## prefect.yaml 추가
 
