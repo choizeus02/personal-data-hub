@@ -75,6 +75,9 @@ class SectorStockItem(BaseModel):
 class SectorMemoUpdate(BaseModel):
     memo: Optional[str] = None
 
+class SharesUpdate(BaseModel):
+    shares_outstanding: int = Field(..., gt=0)
+
 
 def get_connection():
     return psycopg2.connect(
@@ -171,6 +174,63 @@ def create_symbol(data: SymbolCreate):
             "name": NAMES.get(row["symbol"], row["symbol"]),
             "isFavorite": row["is_favorite"] == 1,
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.get("/api/assets/settings")
+def get_asset_settings(exchange: Optional[str] = Query(None)):
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if exchange:
+                cur.execute(
+                    "SELECT id, symbol, exchange, asset_type, shares_outstanding FROM assets WHERE exchange = %s ORDER BY symbol",
+                    (exchange.upper(),),
+                )
+            else:
+                cur.execute(
+                    "SELECT id, symbol, exchange, asset_type, shares_outstanding FROM assets ORDER BY exchange, symbol"
+                )
+            rows = cur.fetchall()
+        return [
+            {
+                "id": row["id"],
+                "symbol": row["symbol"],
+                "exchange": row["exchange"],
+                "name": NAMES.get(row["symbol"], row["symbol"]),
+                "asset_type": row["asset_type"],
+                "shares_outstanding": row["shares_outstanding"],
+            }
+            for row in rows
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.patch("/api/assets/{asset_id}/shares")
+def update_asset_shares(asset_id: int, body: SharesUpdate):
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE assets SET shares_outstanding = %s WHERE id = %s",
+                (body.shares_outstanding, asset_id),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="asset not found")
+        conn.commit()
+        return {"ok": True}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
