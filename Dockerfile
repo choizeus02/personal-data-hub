@@ -7,6 +7,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY flows/ ./flows/
 COPY prefect.yaml .
+COPY start-worker.sh .
+RUN chmod +x start-worker.sh
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app/flows
